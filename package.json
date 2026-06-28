@@ -1,6 +1,6 @@
 {
   "name": "hoterra-hdms",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "HOTERRA Hotel Document Management System",
   "main": "dist-electron/main.js",
   "author": "HOTERRA",
@@ -13,8 +13,9 @@
     "dev:electron": "wait-on http://localhost:5173 http://localhost:3001/api/health && electron .",
     "build": "npm run build:app && electron-builder",
     "build:app": "tsc -p tsconfig.node.json && tsc -p tsconfig.server.json && vite build",
-    "build:win": "npm run build:app && electron-builder --win --publish never",
-    "dist:win": "electron-builder --win --publish never",
+    "prepare:prisma-bundle": "tsx scripts/prepare-prisma-bundle.ts",
+    "build:win": "npm run build:app && npm run prepare:prisma-bundle && electron-builder --win --publish never",
+    "dist:win": "npm run prepare:prisma-bundle && electron-builder --win --publish never",
     "preview": "vite preview",
     "db:seed": "tsx server/seed.ts",
     "postinstall": "prisma generate"
@@ -74,6 +75,16 @@
       {
         "from": "prisma/dev.db",
         "to": "database/hoterra-template.db"
+      },
+      {
+        "from": "build/prisma/generated-client",
+        "to": "prisma/generated-client",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/prisma/npm-client",
+        "to": "prisma/npm-client",
+        "filter": ["**/*"]
       }
     ],
     "asarUnpack": [

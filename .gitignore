@@ -3,6 +3,7 @@ dist/
 dist-electron/
 dist-server/
 release/
+build/
 prisma/dev.db
 prisma/dev.db-journal
 .env

@@ -53,6 +53,13 @@ jobs:
       - name: Build Windows installer
         run: npm run dist:win
 
+      - name: Verify packaged Prisma bundle
+        run: |
+          $client = "release/win-unpacked/resources/prisma/generated-client/default.js"
+          $runtime = "release/win-unpacked/resources/prisma/npm-client/runtime/library.js"
+          if (!(Test-Path $client)) { throw "Packaged Prisma client missing: $client" }
+          if (!(Test-Path $runtime)) { throw "Packaged Prisma runtime missing: $runtime" }
+
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:

@@ -28,19 +28,21 @@ function resolveExisting(basePath: string, ...parts: string[]): string | null {
   return null;
 }
 
-export function getUnpackedNodeModules(resourcesPath: string, appRoot: string): string {
-  const candidates = [
-    path.join(resourcesPath, 'app.asar.unpacked', 'node_modules'),
-    path.join(appRoot, 'node_modules'),
-  ];
+function getPrismaBundlePaths(resourcesPath: string, appRoot: string) {
+  const bundled = {
+    clientDir: path.join(resourcesPath, 'prisma', 'generated-client'),
+    packageDir: path.join(resourcesPath, 'prisma', 'npm-client'),
+  };
 
-  for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, '.prisma', 'client', 'default.js'))) {
-      return dir;
-    }
+  if (fs.existsSync(path.join(bundled.clientDir, 'default.js'))) {
+    return bundled;
   }
 
-  return candidates[0];
+  const fallbackNodeModules = path.join(resourcesPath, 'app.asar.unpacked', 'node_modules');
+  return {
+    clientDir: path.join(fallbackNodeModules, '.prisma', 'client'),
+    packageDir: path.join(fallbackNodeModules, '@prisma', 'client'),
+  };
 }
 
 export function patchPrismaModuleResolution(
@@ -51,37 +53,37 @@ export function patchPrismaModuleResolution(
 ) {
   if (isDev) return;
 
-  const nodeModulesDir = getUnpackedNodeModules(resourcesPath, appRoot);
-  const prismaClientDir = path.join(nodeModulesDir, '.prisma', 'client');
-  const prismaPackageDir = path.join(nodeModulesDir, '@prisma', 'client');
+  const { clientDir: prismaClientDir, packageDir: prismaPackageDir } = getPrismaBundlePaths(
+    resourcesPath,
+    appRoot
+  );
   const defaultPath = path.join(prismaClientDir, 'default.js');
 
   if (!fs.existsSync(defaultPath)) {
-    throw new Error(`Prisma client missing at ${defaultPath}`);
+    throw new Error(
+      `Prisma client missing at ${defaultPath}. Reinstall the application or contact support.`
+    );
   }
 
   const runtimeLibrary = resolveExisting(prismaPackageDir, 'runtime', 'library.js');
   if (!runtimeLibrary) {
-    throw new Error(`Prisma runtime missing at ${path.join(prismaPackageDir, 'runtime', 'library.js')}`);
+    throw new Error(
+      `Prisma runtime missing at ${path.join(prismaPackageDir, 'runtime', 'library.js')}`
+    );
   }
 
   const nodeModule = Module as NodeModuleWithInternals;
   const nodePathParts = (process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean);
 
-  if (!nodePathParts.includes(nodeModulesDir)) {
-    process.env.NODE_PATH = [nodeModulesDir, ...nodePathParts].join(path.delimiter);
+  if (!nodePathParts.includes(prismaPackageDir)) {
+    process.env.NODE_PATH = [prismaPackageDir, ...nodePathParts].join(path.delimiter);
     nodeModule._initPaths();
   }
 
   const originalResolve = nodeModule._resolveFilename.bind(nodeModule);
   nodeModule._resolveFilename = (request, parent, isMain, options) => {
-    if (request === '.prisma/client/default') {
-      return defaultPath;
-    }
-
-    if (request === '.prisma/client') {
-      return path.join(prismaClientDir, 'index.js');
-    }
+    if (request === '.prisma/client/default') return defaultPath;
+    if (request === '.prisma/client') return path.join(prismaClientDir, 'index.js');
 
     if (request === '@prisma/client/runtime/library.js' || request === '@prisma/client/runtime/library') {
       return runtimeLibrary;
@@ -110,6 +112,6 @@ export function patchPrismaModuleResolution(
     }
   }
 
-  log(`Prisma node_modules: ${nodeModulesDir}`);
+  log(`Prisma client: ${prismaClientDir}`);
   log(`Prisma runtime: ${runtimeLibrary}`);
 }
