@@ -54,10 +54,15 @@ function prepareDatabase() {
     }
   }
 
+  const uploadsDir = path.join(userData, 'uploads');
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
   process.env.DATABASE_URL = toFileUrl(dbFile);
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'hoterra-hdms-production-secret';
   process.env.PORT = process.env.PORT || '3001';
+  process.env.HOTERRA_UPLOADS_DIR = uploadsDir;
   log(`Database: ${process.env.DATABASE_URL}`);
+  log(`Uploads: ${uploadsDir}`);
 
   return dbFile;
 }

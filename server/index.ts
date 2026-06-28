@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
-import fs from 'fs';
+import { getUploadsDir } from './lib/paths';
 import authRoutes from './routes/auth';
 import departmentRoutes from './routes/departments';
 import documentRoutes from './routes/documents';
@@ -17,18 +16,15 @@ import roleRoutes from './routes/roles';
 import favoritesRoutes from './routes/favorites';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const UPLOADS_DIR = path.join(__dirname, '../uploads');
 
 export function createApp() {
   const app = express();
 
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
+  const uploadsDir = getUploadsDir();
 
   app.use(cors({ origin: true }));
   app.use(express.json({ limit: '15mb' }));
-  app.use('/uploads', express.static(UPLOADS_DIR));
+  app.use('/uploads', express.static(uploadsDir));
 
   app.get('/', (_req, res) => {
     res.redirect(FRONTEND_URL);

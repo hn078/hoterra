@@ -13,8 +13,7 @@ import {
   serializeSignaturePlacements,
   DEFAULT_SIGNATURE_PLACEMENTS,
 } from '../lib/signatures';
-
-const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+import { getUploadsDir } from '../lib/paths';
 
 const router = Router();
 
@@ -856,11 +855,11 @@ router.post('/:id/upload', authMiddleware, async (req: Request, res: Response) =
   const { fileName, fileType, data, isAttachment } = req.body;
   if (!fileName || !data) return res.status(400).json({ error: 'fileName and data required' });
 
-  if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  const uploadsDir = getUploadsDir();
 
   const ext = path.extname(fileName) || '.bin';
   const storedName = `${uuidv4()}${ext}`;
-  const filePath = path.join(UPLOADS_DIR, storedName);
+  const filePath = path.join(uploadsDir, storedName);
   const buffer = Buffer.from(data, 'base64');
   fs.writeFileSync(filePath, buffer);
 

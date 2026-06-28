@@ -7,10 +7,9 @@ import { Role } from '@prisma/client';
 import { prisma } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { routeParam } from '../utils';
+import { getUploadsDir, ensureDir } from '../lib/paths';
 
 const router = Router();
-const UPLOADS_DIR = path.join(__dirname, '../../uploads');
-const SIGNATURES_DIR = path.join(UPLOADS_DIR, 'signatures');
 
 function requireAdmin(role: Role) {
   return role === Role.SYSTEM_ADMINISTRATOR || role === Role.GENERAL_MANAGER;
@@ -155,7 +154,8 @@ router.post('/:id/signature', authMiddleware, async (req: Request, res: Response
     return res.status(400).json({ error: 'fileName and data required' });
   }
 
-  if (!fs.existsSync(SIGNATURES_DIR)) fs.mkdirSync(SIGNATURES_DIR, { recursive: true });
+  const signaturesDir = path.join(getUploadsDir(), 'signatures');
+  ensureDir(signaturesDir);
 
   const ext = path.extname(fileName).toLowerCase() || '.png';
   const allowed = ['.png', '.jpg', '.jpeg', '.webp', '.svg'];
@@ -164,7 +164,7 @@ router.post('/:id/signature', authMiddleware, async (req: Request, res: Response
   }
 
   const storedName = `${id}${ext}`;
-  const filePath = path.join(SIGNATURES_DIR, storedName);
+  const filePath = path.join(signaturesDir, storedName);
   const buffer = Buffer.from(data, 'base64');
   fs.writeFileSync(filePath, buffer);
 
