@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
+import { getPrismaClientDir, patchPrismaModuleResolution } from './prisma-setup';
 
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -34,35 +35,10 @@ function getResourcePath(...segments: string[]) {
   return path.join(process.resourcesPath, ...segments);
 }
 
-function configurePrismaEngine() {
-  if (isDev) return;
-
-  const engineNames = [
-    'query_engine-windows.dll.node',
-    'query_engine-windows.lib.node',
-    'libquery_engine-darwin.dylib.node',
-    'libquery_engine-linux-musl.so.node',
-    'libquery_engine-linux-gnu.so.node',
-  ];
-
-  const searchPaths = [
-    path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '.prisma', 'client'),
-    path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@prisma', 'client'),
-    path.join(__dirname, '..', 'node_modules', '.prisma', 'client'),
-  ];
-
-  for (const base of searchPaths) {
-    for (const name of engineNames) {
-      const enginePath = path.join(base, name);
-      if (fs.existsSync(enginePath)) {
-        process.env.PRISMA_QUERY_ENGINE_LIBRARY = enginePath;
-        log(`Using Prisma engine: ${enginePath}`);
-        return;
-      }
-    }
-  }
-
-  log('Warning: Prisma query engine binary not found');
+function setupPrisma() {
+  const appRoot = path.join(__dirname, '..');
+  const prismaClientDir = getPrismaClientDir(isDev, process.resourcesPath, appRoot);
+  patchPrismaModuleResolution(prismaClientDir, log);
 }
 
 function prepareDatabase() {
@@ -117,12 +93,12 @@ async function startBackend(): Promise<number> {
   }
 
   prepareDatabase();
-  configurePrismaEngine();
+  setupPrisma();
 
   const serverPath = path.join(__dirname, '../dist-server/index.js');
   log(`Loading server module: ${serverPath}`);
 
-  // DATABASE_URL must be set before Prisma client initializes
+  // DATABASE_URL and Prisma paths must be set before Prisma client initializes
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const serverModule = require(serverPath);
   const { port } = await serverModule.startServer(Number(process.env.PORT) || 3001);

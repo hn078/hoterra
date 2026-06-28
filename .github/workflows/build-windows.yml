@@ -35,6 +35,11 @@ jobs:
           DATABASE_URL: file:./prisma/dev.db
           JWT_SECRET: hoterra-hdms-ci-secret
 
+      - name: Verify Prisma client bundle
+        run: |
+          if (!(Test-Path "node_modules/.prisma/client/default.js")) { throw "Prisma client not generated" }
+          Get-ChildItem "node_modules/.prisma/client" | Select-Object Name
+
       - name: Build application
         run: npm run build:app
         env:
