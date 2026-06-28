@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Save,
   Bold,
@@ -18,10 +18,12 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
+import { DocumentPreviewCanvas } from '@/components/documents/DocumentPreviewCanvas';
 import { api } from '@/lib/api';
 import { TEMPLATE_FIELDS } from '@/data/mock';
-import type { Template } from '@/types';
-import { CATEGORY_LABELS } from '@/types';
+import type { Role, SignaturePlacement, Template } from '@/types';
+import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
+import { SIGNATURE_ROLES } from '@/lib/signatures';
 
 const DEFAULT_CONTENT = `# Standard Operating Procedure
 
@@ -63,12 +65,26 @@ const TOOLBAR_GROUPS = [
   [Braces],
 ];
 
+const DEFAULT_PLACEMENTS: SignaturePlacement[] = [
+  { id: 'placement-hod', role: 'HOD', label: 'Head of Department', page: 'all', x: 8, y: 86, width: 24, height: 9 },
+  { id: 'placement-finance', role: 'FINANCE_DIRECTOR', label: 'Finance Director', page: 'all', x: 38, y: 86, width: 24, height: 9 },
+  { id: 'placement-gm', role: 'GENERAL_MANAGER', label: 'General Manager', page: 'all', x: 68, y: 86, width: 24, height: 9 },
+];
+
 export function TemplateEditorPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const isNew = !id || id === 'new';
   const [template, setTemplate] = useState<Template | null>(null);
   const [content, setContent] = useState(DEFAULT_CONTENT);
   const [name, setName] = useState('New SOP Template');
+  const [previewMode, setPreviewMode] = useState(false);
+  const [designSignatures, setDesignSignatures] = useState(false);
+  const [placements, setPlacements] = useState<SignaturePlacement[]>(DEFAULT_PLACEMENTS);
+  const [pageCount, setPageCount] = useState(1);
+  const [placementRole, setPlacementRole] = useState<Role>('HOD');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isNew && id) {
@@ -76,29 +92,61 @@ export function TemplateEditorPage() {
         setTemplate(t);
         setName(t.name);
         if (t.content) setContent(t.content);
+        if (t.pageCount) setPageCount(t.pageCount);
+        if (t.signaturePlacement) {
+          const raw = typeof t.signaturePlacement === 'string' ? JSON.parse(t.signaturePlacement) : t.signaturePlacement;
+          if (Array.isArray(raw) && raw.length) setPlacements(raw);
+        }
       }).catch(console.error);
     }
   }, [id, isNew]);
 
-  const displayContent = content.replace(
-    /\{\{([^}]+)\}\}/g,
-    '<span class="rounded bg-amber-100 px-1 text-amber-800">{{$1}}</span>'
-  );
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const category = template?.category ?? 'SOP';
+      const payload = { name, category, content, signaturePlacement: placements, pageCount };
+      if (isNew) {
+        await api.createTemplate(payload);
+      } else if (id) {
+        await api.updateTemplate(id, payload);
+      }
+      navigate('/templates');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save template');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title={isNew ? 'New Template' : (template?.name ?? name)}
         subtitle={isNew ? 'Create a new document template' : 'Edit template content and fields'}
         action={
           <div className="flex items-center gap-2">
-            <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50">
-              <Eye className="h-4 w-4" />
-              Preview
+            {error && <span className="text-sm text-red-600">{error}</span>}
+            <button
+              onClick={() => {
+                setDesignSignatures((v) => !v);
+                if (!designSignatures) setPreviewMode(true);
+              }}
+              className={`btn-secondary ${designSignatures ? 'border-hoterra-gold bg-amber-50' : ''}`}
+            >
+              Signature Zones
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white hover:bg-hoterra-steel">
+            <button
+              onClick={() => setPreviewMode((v) => !v)}
+              className={`btn-secondary ${previewMode ? 'border-hoterra-steel bg-hoterra-steel/5' : ''}`}
+            >
+              <Eye className="h-4 w-4" />
+              {previewMode ? 'Edit' : 'Preview'}
+            </button>
+            <button onClick={handleSave} disabled={saving} className="btn-primary disabled:opacity-50">
               <Save className="h-4 w-4" />
-              Save Template
+              {saving ? 'Saving...' : 'Save Template'}
             </button>
           </div>
         }
@@ -138,11 +186,11 @@ export function TemplateEditorPage() {
         )}
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto bg-gray-100 p-6">
+          <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
             <div className="mx-auto max-w-3xl">
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="card overflow-hidden">
                 <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2">
                   <span className="text-xs text-gray-500">Document Canvas</span>
                   {template && (
@@ -152,37 +200,43 @@ export function TemplateEditorPage() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 gap-0 lg:grid-cols-2">
-                  <div className="border-b border-gray-100 p-4 lg:border-b-0 lg:border-r">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                      Editor
-                    </p>
-                    <textarea
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      rows={22}
-                      className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 p-4 font-mono text-sm leading-relaxed focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
-                      spellCheck={false}
-                    />
-                  </div>
+                <div className={`grid grid-cols-1 gap-0 ${previewMode ? '' : 'lg:grid-cols-2'}`}>
+                  {!previewMode && (
+                    <div className="border-b border-gray-100 p-4 lg:border-b-0 lg:border-r">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+                        Editor
+                      </p>
+                      <textarea
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        rows={22}
+                        className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 p-4 font-mono text-sm leading-relaxed focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
+                        spellCheck={false}
+                      />
+                    </div>
+                  )}
 
                   <div className="p-4">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                      Preview
+                      {designSignatures ? 'Click on the page to place signature zones' : 'Preview'}
                     </p>
-                    <div
-                      className="prose prose-sm max-w-none rounded-lg border border-gray-100 bg-white p-4 text-sm leading-relaxed text-gray-700"
-                      dangerouslySetInnerHTML={{
-                        __html: displayContent
-                          .replace(/^# (.+)$/gm, '<h1 class="text-xl font-bold text-hoterra-navy mb-4">$1</h1>')
-                          .replace(/^## (.+)$/gm, '<h2 class="text-base font-bold text-hoterra-navy mt-4 mb-2">$1</h2>')
-                          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                          .replace(/^---$/gm, '<hr class="my-4 border-gray-200" />')
-                          .replace(/^(\d+\. .+)$/gm, '<li class="ml-4">$1</li>')
-                          .replace(/^- \*\*(.+?)\*\*: (.+)$/gm, '<li class="ml-4"><strong>$1:</strong> $2</li>')
-                          .replace(/\n\n/g, '<br /><br />')
-                          .replace(/\n/g, '<br />'),
+                    <DocumentPreviewCanvas
+                      document={{
+                        title: name,
+                        code: 'TEMPLATE-PREVIEW',
+                        version: template?.version ?? '1.0',
+                        description: template?.description ?? 'Template preview',
+                        content,
+                        pageCount,
+                        signaturePlacement: placements,
+                        status: 'DRAFT',
                       }}
+                      mode={designSignatures ? 'design' : 'view'}
+                      placements={placements}
+                      onPlacementsChange={setPlacements}
+                      onPageCountChange={setPageCount}
+                      highlightRole={placementRole}
+                      showThumbnails={pageCount > 1}
                     />
                   </div>
                 </div>
@@ -191,7 +245,46 @@ export function TemplateEditorPage() {
           </div>
         </div>
 
-        <aside className="w-64 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-4">
+        <aside className="card w-72 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-4 shadow-none">
+          {designSignatures ? (
+            <>
+              <h3 className="mb-1 text-sm font-semibold text-hoterra-navy">Signature Placement</h3>
+              <p className="mb-4 text-xs text-gray-500">
+                Choose a role, then click on the document page. Zones marked &quot;all pages&quot; appear on every page when signing.
+              </p>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Role for new zone</label>
+              <select
+                value={placementRole}
+                onChange={(e) => setPlacementRole(e.target.value as Role)}
+                className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              >
+                {SIGNATURE_ROLES.map(({ role, label }) => (
+                  <option key={role} value={role}>{label}</option>
+                ))}
+              </select>
+              <div className="space-y-2">
+                {placements.map((p) => (
+                  <div key={p.id} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+                    <div className="font-medium text-hoterra-navy">{ROLE_LABELS[p.role]}</div>
+                    <div className="text-gray-500">
+                      {p.page === 'all' ? 'All pages' : `Page ${p.page}`} · {Math.round(p.x)}%, {Math.round(p.y)}%
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPlacements((prev) => prev.filter((item) => item.id !== p.id))}
+                      className="mt-1 text-red-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {placements.length === 0 && (
+                  <p className="text-xs text-gray-400">No signature zones yet. Click the page to add one.</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
           <h3 className="mb-1 text-sm font-semibold text-hoterra-navy">Template Fields</h3>
           <p className="mb-4 text-xs text-gray-500">
             Click to insert {'{{placeholder}}'} into the editor
@@ -227,6 +320,8 @@ export function TemplateEditorPage() {
           >
             ← Back to templates
           </Link>
+            </>
+          )}
         </aside>
       </div>
     </div>

@@ -1,16 +1,59 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Shield, Users, Lock } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
-import { ROLE_DEFINITIONS, PERMISSION_COLUMNS } from '@/data/mock';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
+type RoleData = {
+  id: string;
+  name: string;
+  description: string;
+  userCount: number;
+  isSystem: boolean;
+  permissions: Record<string, boolean[]>;
+};
+
 export function RolesPermissionsPage() {
-  const [selectedId, setSelectedId] = useState(ROLE_DEFINITIONS[0].id);
-  const selected = ROLE_DEFINITIONS.find((r) => r.id === selectedId) ?? ROLE_DEFINITIONS[0];
+  const [roles, setRoles] = useState<RoleData[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api
+      .getRoles()
+      .then((data) => {
+        setRoles(data.roles);
+        setColumns(data.columns);
+        if (data.roles.length > 0) {
+          setSelectedId(data.roles[0].id);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const selected = roles.find((r) => r.id === selectedId) ?? roles[0];
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-gray-500">Loading roles...</p>
+      </div>
+    );
+  }
+
+  if (!selected) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-gray-500">No roles found</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Roles & Permissions"
         subtitle="Configure role-based access control for the system"
@@ -25,23 +68,23 @@ export function RolesPermissionsPage() {
         />
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-200 bg-white">
+      <div className="flex flex-1 overflow-hidden bg-white">
+        <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-200">
           <div className="border-b border-gray-100 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
               System Roles
             </p>
           </div>
           <div className="p-2">
-            {ROLE_DEFINITIONS.map((role) => (
+            {roles.map((role) => (
               <button
                 key={role.id}
                 onClick={() => setSelectedId(role.id)}
                 className={cn(
                   'mb-1 w-full rounded-lg px-3 py-3 text-left transition-colors',
                   selectedId === role.id
-                    ? 'bg-hoterra-navy text-white'
-                    : 'hover:bg-gray-50'
+                    ? 'nav-active'
+                    : 'hover:bg-gray-50 text-gray-700'
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -56,7 +99,7 @@ export function RolesPermissionsPage() {
                 <p
                   className={cn(
                     'mt-0.5 pl-6 text-xs',
-                    selectedId === role.id ? 'text-white/70' : 'text-gray-500'
+                    selectedId === role.id ? 'text-hoterra-navy/70' : 'text-gray-500'
                   )}
                 >
                   {role.description}
@@ -64,7 +107,7 @@ export function RolesPermissionsPage() {
                 <div
                   className={cn(
                     'mt-1.5 flex items-center gap-1 pl-6 text-xs',
-                    selectedId === role.id ? 'text-white/60' : 'text-gray-400'
+                    selectedId === role.id ? 'text-hoterra-navy/60' : 'text-gray-400'
                   )}
                 >
                   <Users className="h-3 w-3" />
@@ -87,15 +130,15 @@ export function RolesPermissionsPage() {
             <p className="text-sm text-gray-500">{selected.description}</p>
           </div>
 
-          <div className="flex-1 overflow-auto bg-gray-50 p-6">
-            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex-1 overflow-auto bg-hoterra-page p-6">
+            <div className="card overflow-x-auto">
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                       Module
                     </th>
-                    {PERMISSION_COLUMNS.map((col) => (
+                    {columns.map((col) => (
                       <th
                         key={col}
                         className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-500"

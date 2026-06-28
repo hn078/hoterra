@@ -4,23 +4,27 @@ import {
   Role,
   DocumentStatus,
   DocumentCategory,
+  DocumentPriority,
   AuditAction,
 } from '@prisma/client';
+import { DEFAULT_SIGNATURE_PLACEMENTS, serializeSignaturePlacements } from './lib/signatures';
+
+const DEFAULT_PLACEMENT_JSON = serializeSignaturePlacements(DEFAULT_SIGNATURE_PLACEMENTS);
 
 const prisma = new PrismaClient();
 
 const DEPARTMENTS = [
-  { name: 'General Management', code: 'GM', color: '#6B7280' },
-  { name: 'Front Office', code: 'FO', color: '#3B82F6' },
-  { name: 'Housekeeping', code: 'HK', color: '#10B981' },
-  { name: 'Finance', code: 'FI', color: '#8B5CF6' },
-  { name: 'Human Resources', code: 'HR', color: '#F97316' },
-  { name: 'Sales & Marketing', code: 'SM', color: '#06B6D4' },
-  { name: 'Engineering', code: 'EN', color: '#14B8A6' },
-  { name: 'Security', code: 'SC', color: '#1E3A5F' },
-  { name: 'Procurement', code: 'PR', color: '#EAB308' },
-  { name: 'Food & Beverage', code: 'FB', color: '#EF4444' },
-  { name: 'Kitchen', code: 'KT', color: '#EC4899' },
+  { name: 'General Management', code: 'GM', color: '#6B7280', location: 'Head Office', description: 'Executive leadership and corporate governance.' },
+  { name: 'Front Office', code: 'FO', color: '#3B82F6', location: 'Main Hotel', description: 'Guest services, reservations and front desk operations.' },
+  { name: 'Housekeeping', code: 'HK', color: '#10B981', location: 'Main Hotel', description: 'Room cleaning, laundry and guest room standards.' },
+  { name: 'Finance', code: 'FI', color: '#8B5CF6', location: 'Head Office', description: 'Financial planning, accounting and budget control.' },
+  { name: 'Human Resources', code: 'HR', color: '#F97316', location: 'Head Office', description: 'Recruitment, training and employee relations.' },
+  { name: 'Sales & Marketing', code: 'SM', color: '#06B6D4', location: 'Main Hotel', description: 'Sales, marketing and guest relations.' },
+  { name: 'Engineering', code: 'EN', color: '#14B8A6', location: 'Main Hotel', description: 'Maintenance and technical operations.' },
+  { name: 'Security', code: 'SC', color: '#1E3A5F', location: 'Main Hotel', description: 'Safety, security and emergency procedures.' },
+  { name: 'Procurement', code: 'PR', color: '#EAB308', location: 'Head Office', description: 'Purchasing and vendor management.' },
+  { name: 'Food & Beverage', code: 'FB', color: '#EF4444', location: 'Main Hotel', description: 'Restaurant, bar and banquet operations.' },
+  { name: 'Kitchen', code: 'KT', color: '#EC4899', location: 'Main Hotel', description: 'Kitchen operations and food preparation.' },
 ];
 
 const TEMPLATES = [
@@ -37,7 +41,7 @@ async function main() {
   for (const dept of DEPARTMENTS) {
     await prisma.department.upsert({
       where: { code: dept.code },
-      update: {},
+      update: { location: dept.location, description: dept.description },
       create: dept,
     });
   }
@@ -100,9 +104,25 @@ async function main() {
   for (const t of TEMPLATES) {
     const existing = await prisma.template.findFirst({ where: { name: t.name } });
     if (!existing) {
-      await prisma.template.create({ data: t });
+      await prisma.template.create({
+        data: {
+          ...t,
+          version: '1.0',
+          status: 'Active',
+          departmentId: deptByCode.FO.id,
+          signaturePlacement: DEFAULT_PLACEMENT_JSON,
+          pageCount: 3,
+        },
+      });
+    } else {
+      await prisma.template.update({
+        where: { id: existing.id },
+        data: { signaturePlacement: DEFAULT_PLACEMENT_JSON, pageCount: 3 },
+      });
     }
   }
+
+  const standardWorkflow = await prisma.workflowRoute.findUnique({ where: { id: 'standard' } });
 
   await prisma.systemSettings.upsert({
     where: { id: 'default' },
@@ -134,9 +154,15 @@ async function main() {
       version: '2.1',
       description: 'Procedure for secure handling of guest credit card information at front desk.',
       tags: JSON.stringify(['Credit Card', 'Payment']),
-      nextReviewDate: new Date('2026-06-12'),
+      nextReviewDate: new Date('2026-07-12'),
       effectiveDate: new Date('2025-06-12'),
       isLocked: true,
+      priority: DocumentPriority.HIGH,
+      workflowId: 'standard',
+      content: '1. PURPOSE\nSecure handling of guest credit card information.\n\n2. SCOPE\nAll front office staff.',
+      fileName: 'Credit_Card_Handling_Procedure_v2.1.pdf',
+      fileType: 'pdf',
+      fileSize: 1258291,
     },
     {
       title: 'Housekeeping Cleaning Checklist',
@@ -148,7 +174,9 @@ async function main() {
       status: DocumentStatus.IN_REVIEW,
       version: '1.3',
       tags: JSON.stringify(['Cleaning', 'Daily']),
-      nextReviewDate: new Date('2025-06-15'),
+      nextReviewDate: new Date('2026-07-15'),
+      priority: DocumentPriority.MEDIUM,
+      workflowId: 'standard',
     },
     {
       title: 'Monthly Budget Planning Template',
@@ -160,6 +188,8 @@ async function main() {
       status: DocumentStatus.SIGNED_HOD,
       version: '3.0',
       tags: JSON.stringify(['Budget', 'Finance']),
+      priority: DocumentPriority.HIGH,
+      workflowId: 'standard',
     },
     {
       title: 'Guest Privacy Policy',
@@ -182,14 +212,62 @@ async function main() {
       status: DocumentStatus.SIGNED_FINANCE,
       version: '1.0',
       tags: JSON.stringify(['Vendor', 'Contract']),
+      priority: DocumentPriority.MEDIUM,
+      workflowId: 'standard',
+    },
+    {
+      title: 'Legacy Guest Registration Form',
+      code: 'FO-FRM-099',
+      category: DocumentCategory.FORMS,
+      departmentId: deptByCode.FO.id,
+      authorId: userByEmail['nigar.rustamova@hoterra.az'].id,
+      ownerId: userByEmail['nigar.rustamova@hoterra.az'].id,
+      status: DocumentStatus.ARCHIVED,
+      version: '1.0',
+      archiveReason: 'Replaced by new digital form',
+      archivedAt: new Date('2024-11-15'),
+      archivedBy: 'Nigar Rustamova',
+      fileSize: 1258291,
+      priority: DocumentPriority.LOW,
+    },
+    {
+      title: '2019 Fire Safety Manual',
+      code: 'SC-POL-012',
+      category: DocumentCategory.POLICIES,
+      departmentId: deptByCode.SC.id,
+      authorId: userByEmail['fuad.ahmadov@hoterra.az'].id,
+      ownerId: userByEmail['fuad.ahmadov@hoterra.az'].id,
+      status: DocumentStatus.ARCHIVED,
+      version: '1.0',
+      archiveReason: 'Superseded by 2024 edition',
+      archivedAt: new Date('2024-09-20'),
+      archivedBy: 'Fuad Ahmadov',
+      fileSize: 5033164,
+      priority: DocumentPriority.MEDIUM,
     },
   ];
 
   for (const doc of sampleDocs) {
     await prisma.document.upsert({
       where: { code: doc.code },
-      update: {},
-      create: doc,
+      update: {
+        workflowId: doc.workflowId ?? 'standard',
+        nextReviewDate: doc.nextReviewDate ?? undefined,
+        priority: doc.priority,
+        content: doc.content,
+        fileSize: doc.fileSize,
+        archiveReason: doc.archiveReason,
+        archivedAt: doc.archivedAt,
+        archivedBy: doc.archivedBy,
+        signaturePlacement: DEFAULT_PLACEMENT_JSON,
+        pageCount: 3,
+      },
+      create: {
+        ...doc,
+        workflowId: doc.workflowId ?? 'standard',
+        signaturePlacement: DEFAULT_PLACEMENT_JSON,
+        pageCount: 3,
+      },
     });
   }
 
@@ -244,6 +322,39 @@ async function main() {
             userName: 'Fuad Ahmadov',
           },
         });
+      }
+    }
+  }
+
+  const reviewDoc = await prisma.document.findUnique({ where: { code: 'HK-CHK-012' } });
+  if (reviewDoc) {
+    const nigar = userByEmail['nigar.rustamova@hoterra.az'];
+    const elnur = userByEmail['elnur.mahmudov@hoterra.az'];
+    for (const [text, userId, status] of [
+      ['Please review section 3.2 regarding PCI-DSS compliance requirements.', nigar.id, 'resolved'],
+      ['Updated the escalation procedure. Ready for GM approval.', elnur.id, 'open'],
+    ] as const) {
+      const exists = await prisma.documentComment.findFirst({
+        where: { documentId: reviewDoc.id, text },
+      });
+      if (!exists) {
+        await prisma.documentComment.create({
+          data: { documentId: reviewDoc.id, userId, text, status },
+        });
+      }
+    }
+  }
+
+  if (publishedDoc) {
+    for (const att of [
+      { fileName: 'Credit Card Incident Log.xlsx', filePath: '/uploads/demo-incident-log.xlsx', fileSize: 250880, fileType: 'xlsx' },
+      { fileName: 'Declined Card SOP.docx', filePath: '/uploads/demo-declined-sop.docx', fileSize: 131072, fileType: 'docx' },
+    ]) {
+      const exists = await prisma.documentAttachment.findFirst({
+        where: { documentId: publishedDoc.id, fileName: att.fileName },
+      });
+      if (!exists) {
+        await prisma.documentAttachment.create({ data: { documentId: publishedDoc.id, ...att } });
       }
     }
   }

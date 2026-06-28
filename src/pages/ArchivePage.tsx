@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   FileText,
   HardDrive,
   Clock,
+  LayoutTemplate,
   Search,
   Filter,
   RotateCcw,
@@ -11,139 +12,126 @@ import {
   Download,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
-import { StatCard } from '@/components/ui/StatCard';
+import { DashStatCard } from '@/components/ui/DashStatCard';
 import { Pagination } from '@/components/ui/Pagination';
 import { api } from '@/lib/api';
-import { buildArchiveItems, type ArchiveItem } from '@/data/mock';
+import type { Document } from '@/types';
 import { formatDate } from '@/lib/utils';
-
-const DEMO_ARCHIVE_EXTRAS: ArchiveItem[] = [
-  {
-    id: 'demo-1',
-    name: 'Legacy Guest Registration Form',
-    code: 'FO-FRM-099',
-    type: 'Document',
-    module: 'Documents',
-    archivedBy: 'Nigar Rustamova',
-    archivedAt: '2024-11-15T10:30:00Z',
-    reason: 'Replaced by new digital form',
-    size: '1.2 MB',
-  },
-  {
-    id: 'demo-2',
-    name: '2019 Fire Safety Manual',
-    code: 'SC-POL-012',
-    type: 'Document',
-    module: 'Documents',
-    archivedBy: 'Fuad Ahmadov',
-    archivedAt: '2024-09-20T14:00:00Z',
-    reason: 'Superseded by 2024 edition',
-    size: '4.8 MB',
-  },
-  {
-    id: 'demo-3',
-    name: 'Old Vendor Contract Template',
-    code: 'PR-CON-003',
-    type: 'Template',
-    module: 'Templates',
-    archivedBy: 'Elnur Mahmudov',
-    archivedAt: '2024-08-05T09:15:00Z',
-    reason: 'Legal review required update',
-    size: '856 KB',
-  },
-  {
-    id: 'demo-4',
-    name: 'Q1 2024 Budget Report',
-    code: 'FI-RPT-001',
-    type: 'Report',
-    module: 'Reports',
-    archivedBy: 'Elnur Mahmudov',
-    archivedAt: '2024-04-30T16:45:00Z',
-    reason: 'Reporting period closed',
-    size: '3.1 MB',
-  },
-];
 
 const MODULES = ['ALL', 'Documents', 'Templates', 'Reports'];
 const LIMIT = 20;
 
+function formatFileSize(bytes?: number | null): string {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function ArchivePage() {
-  const [items, setItems] = useState<ArchiveItem[]>([]);
-  const [restored, setRestored] = useState<Set<string>>(new Set());
+  const [items, setItems] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [moduleFilter, setModuleFilter] = useState('ALL');
   const [page, setPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
+  const loadItems = useCallback(() => {
     setLoading(true);
     api
-      .getDocuments({ status: 'ARCHIVED', limit: '50' })
-      .then((res) => {
-        const fromApi = buildArchiveItems(res.data);
-        const merged = [...fromApi];
-        for (const extra of DEMO_ARCHIVE_EXTRAS) {
-          if (!merged.some((i) => i.code === extra.code)) {
-            merged.push(extra);
-          }
-        }
-        setItems(merged);
-      })
+      .getDocuments({ status: 'ARCHIVED', limit: '200' })
+      .then((res) => setItems(res.data))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    loadItems();
+  }, [loadItems]);
+
   const visible = useMemo(() => {
     const q = search.toLowerCase();
-    return items.filter((item) => {
-      if (restored.has(item.id)) return false;
-      const matchesModule = moduleFilter === 'ALL' || item.module === moduleFilter;
+    return items.filter((doc) => {
+      const matchesModule = moduleFilter === 'ALL' || moduleFilter === 'Documents';
+      const archivedBy = doc.archivedBy ?? '';
       const matchesSearch =
         !q ||
-        item.name.toLowerCase().includes(q) ||
-        item.code.toLowerCase().includes(q) ||
-        item.archivedBy.toLowerCase().includes(q);
+        doc.title.toLowerCase().includes(q) ||
+        doc.code.toLowerCase().includes(q) ||
+        archivedBy.toLowerCase().includes(q);
       return matchesModule && matchesSearch;
     });
-  }, [items, search, moduleFilter, restored]);
+  }, [items, search, moduleFilter]);
 
   const stats = useMemo(() => {
-    const active = items.filter((i) => !restored.has(i.id));
-    const docs = active.filter((i) => i.module === 'Documents').length;
-    const totalSize = active.length * 2.4;
-    const thisMonth = active.filter((i) => {
-      const d = new Date(i.archivedAt);
+    const docs = items.length;
+    const totalBytes = items.reduce((s, d) => s + (d.fileSize ?? 0), 0);
+    const totalSize = totalBytes / (1024 * 1024 * 1024);
+    const thisMonth = items.filter((d) => {
+      if (!d.archivedAt) return false;
+      const date = new Date(d.archivedAt);
       const now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
     }).length;
-    return { total: active.length, docs, totalSize: totalSize.toFixed(1), thisMonth };
-  }, [items, restored]);
+    return { total: items.length, docs, templates: 0, totalSize: totalSize.toFixed(2), thisMonth };
+  }, [items]);
 
   const totalPages = Math.max(1, Math.ceil(visible.length / LIMIT));
   const paginated = visible.slice((page - 1) * LIMIT, page * LIMIT);
 
-  const handleRestore = (id: string) => {
-    setRestored((prev) => new Set(prev).add(id));
+  const handleRestore = async (id: string) => {
+    try {
+      await api.restoreDocument(id);
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      alert('Item restored successfully');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to restore item');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Permanently delete this archived document?')) return;
+    try {
+      await api.deleteDocument(id);
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      alert('Document deleted');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete item');
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await api.exportDocuments({ status: 'ARCHIVED' });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Archive"
         subtitle="Browse and restore archived documents, templates and reports"
         action={
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-50">
+          <button onClick={handleExport} disabled={exporting} className="btn-secondary disabled:opacity-50">
             <Download className="h-4 w-4" />
-            Export Archive
+            {exporting ? 'Exporting...' : 'Export Archive'}
           </button>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 border-b border-gray-200 bg-gray-50 px-6 py-4 lg:grid-cols-4">
-        <StatCard label="Archived Items" value={stats.total} icon={Archive} color="blue" />
-        <StatCard label="Documents" value={stats.docs} icon={FileText} color="purple" />
-        <StatCard label="Storage Used" value={`${stats.totalSize} GB`} icon={HardDrive} color="gray" />
-        <StatCard label="Archived This Month" value={stats.thisMonth} icon={Clock} color="orange" />
+      <div className="page-stats">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <DashStatCard label="Archived Items" value={stats.total} icon={Archive} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <DashStatCard label="Documents" value={stats.docs} icon={FileText} iconColor="text-purple-600" iconBg="bg-purple-50" />
+          <DashStatCard label="Templates" value={stats.templates} icon={LayoutTemplate} iconColor="text-orange-600" iconBg="bg-orange-50" />
+          <DashStatCard label="Storage Used" value={`${stats.totalSize} GB`} icon={HardDrive} iconColor="text-gray-600" iconBg="bg-gray-100" />
+          <DashStatCard label="Archived This Month" value={stats.thisMonth} icon={Clock} iconColor="text-orange-600" iconBg="bg-orange-50" />
+        </div>
       </div>
 
       <div className="border-b border-gray-200 bg-white px-6 py-3">
@@ -158,7 +146,7 @@ export function ArchivePage() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none"
+              className="w-full rounded-lg border border-gray-200 py-2.5 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
             />
           </div>
           <select
@@ -167,22 +155,20 @@ export function ArchivePage() {
               setModuleFilter(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            className="filter-select"
           >
             {MODULES.map((m) => (
-              <option key={m} value={m}>
-                {m === 'ALL' ? 'All Modules' : m}
-              </option>
+              <option key={m} value={m}>{m === 'ALL' ? 'All Modules' : m}</option>
             ))}
           </select>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+          <button className="btn-secondary py-2.5">
             <Filter className="h-4 w-4" />
             Filter
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto bg-white">
         <table className="w-full min-w-[1100px] text-sm">
           <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
             <tr>
@@ -214,33 +200,36 @@ export function ArchivePage() {
                 </td>
               </tr>
             ) : (
-              paginated.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
+              paginated.map((doc) => (
+                <tr key={doc.id} className="hover:bg-gray-50">
                   <td className="px-6 py-3">
                     <input type="checkbox" />
                   </td>
-                  <td className="px-4 py-3 font-medium text-hoterra-navy">{item.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{item.code}</td>
+                  <td className="px-4 py-3 font-medium text-hoterra-navy">{doc.title}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{doc.code}</td>
                   <td className="px-4 py-3">
-                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs">{item.type}</span>
+                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs">Document</span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{item.module}</td>
-                  <td className="px-4 py-3 text-gray-700">{item.archivedBy}</td>
-                  <td className="px-4 py-3 text-gray-500">{formatDate(item.archivedAt)}</td>
-                  <td className="max-w-[180px] truncate px-4 py-3 text-gray-500" title={item.reason}>
-                    {item.reason}
+                  <td className="px-4 py-3 text-gray-600">Documents</td>
+                  <td className="px-4 py-3 text-gray-700">{doc.archivedBy ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{formatDate(doc.archivedAt)}</td>
+                  <td className="max-w-[180px] truncate px-4 py-3 text-gray-500" title={doc.archiveReason ?? ''}>
+                    {doc.archiveReason ?? '—'}
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{item.size ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{formatFileSize(doc.fileSize)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       <button
-                        onClick={() => handleRestore(item.id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-100"
+                        onClick={() => handleRestore(doc.id)}
+                        className="btn-secondary border-green-200 bg-green-50 py-1.5 text-xs text-green-700 hover:bg-green-100"
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
                         Restore
                       </button>
-                      <button className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500">
+                      <button
+                        onClick={() => handleDelete(doc.id)}
+                        className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                      >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>

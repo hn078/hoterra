@@ -5,25 +5,22 @@ import {
   CheckCircle,
   Clock,
   FileEdit,
+  Archive,
   Plus,
   Search,
-  Filter,
   Download,
   MoreHorizontal,
   Pencil,
 } from 'lucide-react';
 import { Header, DepartmentBadge } from '@/components/layout/Sidebar';
-import { StatCard } from '@/components/ui/StatCard';
+import { DashStatCard } from '@/components/ui/DashStatCard';
+import { CategoryBadge } from '@/components/ui/Badges';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { Pagination } from '@/components/ui/Pagination';
 import { api } from '@/lib/api';
 import type { DocumentCategory, Template } from '@/types';
-import { CATEGORY_LABELS } from '@/types';
-import { enrichTemplate } from '@/data/mock';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-
-type EnrichedTemplate = ReturnType<typeof enrichTemplate>;
 
 const CATEGORY_TABS: { id: DocumentCategory | 'ALL'; label: string }[] = [
   { id: 'ALL', label: 'All Templates' },
@@ -37,26 +34,36 @@ const CATEGORY_TABS: { id: DocumentCategory | 'ALL'; label: string }[] = [
 
 const STATUS_STYLE: Record<string, string> = {
   Active: 'bg-green-100 text-green-700 border-green-300',
+  ACTIVE: 'bg-green-100 text-green-700 border-green-300',
   'Under Review': 'bg-orange-100 text-orange-700 border-orange-300',
   Draft: 'bg-gray-100 text-gray-600 border-gray-300',
+  DRAFT: 'bg-gray-100 text-gray-600 border-gray-300',
+  Archived: 'bg-slate-100 text-slate-600 border-slate-300',
+  ARCHIVED: 'bg-slate-100 text-slate-600 border-slate-300',
 };
+
+function templateStatus(t: Template): string {
+  if (t.status) return t.status;
+  if (t.isActive === false) return 'Draft';
+  return 'Active';
+}
 
 const LIMIT = 20;
 
 export function TemplatesPage() {
-  const [templates, setTemplates] = useState<EnrichedTemplate[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<DocumentCategory | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     api
       .getTemplates()
-      .then((data: Template[]) => {
-        setTemplates(data.map((t, i) => enrichTemplate(t, i)));
-      })
+      .then(setTemplates)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -65,24 +72,50 @@ export function TemplatesPage() {
     return templates.filter((t) => {
       const matchesTab = activeTab === 'ALL' || t.category === activeTab;
       const q = search.toLowerCase();
+      const deptName = t.department?.name ?? '';
       const matchesSearch =
         !q ||
         t.name.toLowerCase().includes(q) ||
-        t.department.toLowerCase().includes(q) ||
-        t.updatedBy.toLowerCase().includes(q);
-      return matchesTab && matchesSearch;
+        deptName.toLowerCase().includes(q);
+      const status = templateStatus(t);
+      const matchesStatus =
+        !filterStatus ||
+        status.toLowerCase() === filterStatus.toLowerCase() ||
+        status.toUpperCase() === filterStatus.toUpperCase();
+      return matchesTab && matchesSearch && matchesStatus;
     });
-  }, [templates, activeTab, search]);
+  }, [templates, activeTab, search, filterStatus]);
 
   const stats = useMemo(() => {
-    const active = templates.filter((t) => t.status === 'Active').length;
-    const underReview = templates.filter((t) => t.status === 'Under Review').length;
-    const draft = templates.filter((t) => t.status === 'Draft').length;
-    return { total: templates.length, active, underReview, draft };
+    const active = templates.filter((t) => {
+      const s = templateStatus(t);
+      return s === 'Active' || s === 'ACTIVE';
+    }).length;
+    const underReview = templates.filter((t) => templateStatus(t) === 'Under Review').length;
+    const draft = templates.filter((t) => {
+      const s = templateStatus(t);
+      return s === 'Draft' || s === 'DRAFT';
+    }).length;
+    const archived = templates.filter((t) => {
+      const s = templateStatus(t);
+      return s === 'Archived' || s === 'ARCHIVED';
+    }).length;
+    return { total: templates.length, active, underReview, draft, archived };
   }, [templates]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIMIT));
   const paginated = filtered.slice((page - 1) * LIMIT, page * LIMIT);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this template?')) return;
+    setOpenMenuId(null);
+    try {
+      await api.deleteTemplate(id);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
 
   const tabs = CATEGORY_TABS.map((tab) => ({
     id: tab.id,
@@ -94,26 +127,26 @@ export function TemplatesPage() {
   }));
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
-        title="Document Templates"
-        subtitle="Manage reusable templates for hotel documents and forms"
+        title="Templates"
+        subtitle="Create and manage document templates for your organization"
         action={
-          <Link
-            to="/templates/create"
-            className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white hover:bg-hoterra-steel"
-          >
+          <Link to="/templates/new/edit" className="btn-primary">
             <Plus className="h-4 w-4" />
             New Template
           </Link>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 border-b border-gray-200 bg-gray-50 px-6 py-4 lg:grid-cols-4">
-        <StatCard label="Total Templates" value={stats.total} icon={LayoutTemplate} color="blue" />
-        <StatCard label="Active" value={stats.active} icon={CheckCircle} color="green" />
-        <StatCard label="Under Review" value={stats.underReview} icon={Clock} color="orange" />
-        <StatCard label="Draft" value={stats.draft} icon={FileEdit} color="gray" />
+      <div className="page-stats">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <DashStatCard label="Total Templates" value={stats.total} icon={LayoutTemplate} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <DashStatCard label="Active" value={stats.active} icon={CheckCircle} iconColor="text-green-600" iconBg="bg-green-50" />
+          <DashStatCard label="Under Review" value={stats.underReview} icon={Clock} iconColor="text-orange-600" iconBg="bg-orange-50" />
+          <DashStatCard label="Draft" value={stats.draft} icon={FileEdit} iconColor="text-gray-600" iconBg="bg-gray-100" />
+          <DashStatCard label="Archived" value={stats.archived} icon={Archive} iconColor="text-slate-600" iconBg="bg-slate-100" />
+        </div>
       </div>
 
       <PageTabs
@@ -131,40 +164,39 @@ export function TemplatesPage() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="search"
-              placeholder="Search templates by name, department or author..."
+              placeholder="Search templates by name or department..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none"
+              className="w-full rounded-lg border border-gray-200 py-2.5 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
             />
           </div>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
-            <Filter className="h-4 w-4" />
-            Filter
-          </button>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+          <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }} className="filter-select">
+            <option value="">All Status</option>
+            <option value="Active">Active</option>
+            <option value="Draft">Draft</option>
+            <option value="Under Review">Under Review</option>
+            <option value="Archived">Archived</option>
+          </select>
+          <Link to="/templates" className="btn-secondary py-2.5">
             <Download className="h-4 w-4" />
             Export
-          </button>
+          </Link>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto bg-white">
         <table className="w-full min-w-[1100px] text-sm">
-          <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
+          <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
-              <th className="px-6 py-3">
-                <input type="checkbox" />
-              </th>
+              <th className="px-6 py-3"><input type="checkbox" className="rounded" /></th>
               <th className="px-4 py-3">Template Name</th>
-              <th className="px-4 py-3">Type</th>
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Department</th>
               <th className="px-4 py-3">Version</th>
               <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Updated By</th>
               <th className="px-4 py-3">Last Updated</th>
               <th className="px-4 py-3">Actions</th>
             </tr>
@@ -172,88 +204,66 @@ export function TemplatesPage() {
           <tbody className="divide-y divide-gray-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
-                  Loading templates...
-                </td>
+                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">Loading templates...</td>
               </tr>
             ) : paginated.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
-                  No templates found
-                </td>
+                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">No templates found</td>
               </tr>
             ) : (
-              paginated.map((t) => (
-                <tr key={t.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-3">
-                    <input type="checkbox" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/templates/${t.id}/edit`}
-                      className="font-medium text-hoterra-navy hover:text-hoterra-steel"
-                    >
-                      {t.name}
-                    </Link>
-                    {t.description && (
-                      <p className="mt-0.5 text-xs text-gray-400 line-clamp-1">{t.description}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                      {t.type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">
-                      {CATEGORY_LABELS[t.category]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <DepartmentBadge name={t.department} />
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs">{t.version}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        'inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium',
-                        STATUS_STYLE[t.status] || STATUS_STYLE.Draft
-                      )}
-                    >
-                      {t.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">{t.updatedBy}</td>
-                  <td className="px-4 py-3 text-gray-500">{formatDate(t.updatedAt)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <Link
-                        to={`/templates/${t.id}/edit`}
-                        className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-hoterra-steel"
-                        title="Edit template"
-                      >
-                        <Pencil className="h-4 w-4" />
+              paginated.map((t) => {
+                const status = templateStatus(t);
+                return (
+                  <tr key={t.id} className="hover:bg-gray-50/80">
+                    <td className="px-6 py-3"><input type="checkbox" className="rounded" /></td>
+                    <td className="px-4 py-3">
+                      <Link to={`/templates/${t.id}/edit`} className="font-medium text-hoterra-navy hover:text-hoterra-steel">
+                        {t.name}
                       </Link>
-                      <button className="rounded p-1.5 text-gray-400 hover:bg-gray-100">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                      {t.description && (
+                        <p className="mt-0.5 line-clamp-1 text-xs text-gray-400">{t.description}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3"><CategoryBadge category={t.category} /></td>
+                    <td className="px-4 py-3">
+                      {t.department ? (
+                        <DepartmentBadge name={t.department.name} color={t.department.color} />
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{t.version ?? '1.0'}</td>
+                    <td className="px-4 py-3">
+                      <span className={cn('inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium', STATUS_STYLE[status] || STATUS_STYLE.Draft)}>
+                        {status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(t.updatedAt)}</td>
+                    <td className="px-4 py-3">
+                      <div className="relative flex items-center gap-1">
+                        <Link to={`/templates/${t.id}/edit`} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-hoterra-steel" title="Edit template">
+                          <Pencil className="h-4 w-4" />
+                        </Link>
+                        <button onClick={() => setOpenMenuId(openMenuId === t.id ? null : t.id)} className="rounded p-1.5 text-gray-400 hover:bg-gray-100">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                        {openMenuId === t.id && (
+                          <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                            <Link to={`/templates/${t.id}/edit`} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setOpenMenuId(null)}>Export / Edit</Link>
+                            <button onClick={() => handleDelete(t.id)} className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-50">Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      <Pagination
-        page={page}
-        totalPages={totalPages}
-        total={filtered.length}
-        limit={LIMIT}
-        onPageChange={setPage}
-        label="templates"
-      />
+      <Pagination page={page} totalPages={totalPages} total={filtered.length} limit={LIMIT} onPageChange={setPage} label="templates" />
     </div>
   );
 }

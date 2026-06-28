@@ -89,12 +89,57 @@ class ApiClient {
     });
   }
 
+  updateDocument(id: string, data: Record<string, unknown>) {
+    return this.request<import('@/types').Document>(`/documents/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  approveDocument(id: string, action: 'approve' | 'reject' | 'request_changes', comment?: string) {
+    return this.request<import('@/types').Document>(`/documents/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ action, comment }),
+    });
+  }
+
+  restoreDocument(id: string) {
+    return this.request<import('@/types').Document>(`/documents/${id}/restore`, {
+      method: 'POST',
+    });
+  }
+
   getDashboardStats() {
     return this.request<import('@/types').DashboardStats>('/documents/stats');
   }
 
   getTemplates() {
     return this.request<import('@/types').Template[]>('/templates');
+  }
+
+  getTemplate(id: string) {
+    return this.request<import('@/types').Template>(`/templates/${id}`);
+  }
+
+  createTemplate(data: {
+    name: string;
+    description?: string;
+    category: string;
+    content?: string;
+    signaturePlacement?: unknown;
+    pageCount?: number;
+  }) {
+    return this.request<import('@/types').Template>('/templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  updateTemplate(id: string, data: Record<string, unknown>) {
+    return this.request<import('@/types').Template>(`/templates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
   }
 
   getSettings() {
@@ -112,10 +157,57 @@ class ApiClient {
     return this.request<import('@/types').User[]>('/users');
   }
 
-  getAuditLogs(page = 1, limit = 20) {
-    return this.request<{ data: import('@/types').AuditLog[]; pagination: { page: number; limit: number; total: number } }>(
-      `/audit?page=${page}&limit=${limit}`
+  getUser(id: string) {
+    return this.request<import('@/types').User & {
+      signatureImage?: string | null;
+      createdAt: string;
+      counts: { documents: number; signatures: number; auditLogs: number };
+      recentActivity: import('@/types').AuditLog[];
+      recentDocs: import('@/types').Document[];
+    }>(`/users/${id}`);
+  }
+
+  uploadUserSignature(userId: string, fileName: string, data: string) {
+    return this.request<import('@/types').User>(`/users/${userId}/signature`, {
+      method: 'POST',
+      body: JSON.stringify({ fileName, data }),
+    });
+  }
+
+  getAuditLogs(params?: { page?: number; limit?: number; search?: string; action?: string; entityType?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.search) qs.set('search', params.search);
+    if (params?.action) qs.set('action', params.action);
+    if (params?.entityType) qs.set('entityType', params.entityType);
+    return this.request<{ data: import('@/types').AuditLog[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
+      `/audit?${qs}`
     );
+  }
+
+  exportAuditLogs() {
+    return this.download('/audit/export', 'audit-log.csv');
+  }
+
+  private async download(path: string, filename: string) {
+    const token = this.getToken();
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('Export failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  exportDocuments(params?: Record<string, string>) {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return this.download(`/documents/export/csv${qs}`, 'documents.csv');
   }
 
   getApprovals(tab = 'pending', page = 1) {
@@ -134,7 +226,31 @@ class ApiClient {
     return this.request<import('@/types').WorkflowItem>(`/workflows/${id}`);
   }
 
-  search(q: string, type = 'all') {
+  createWorkflow(data: { name: string; description?: string; steps?: string[] }) {
+    return this.request<import('@/types').WorkflowItem>('/workflows', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  updateWorkflow(id: string, data: { name?: string; description?: string; steps?: string[] }) {
+    return this.request<import('@/types').WorkflowItem>(`/workflows/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  getDepartment(id: string) {
+    return this.request<import('@/types').Department & {
+      users: import('@/types').User[];
+      documents: import('@/types').Document[];
+      workflowList: import('@/types').WorkflowItem[];
+      templateList: import('@/types').Template[];
+    }>(`/departments/${id}`);
+  }
+
+  search(q: string, type = 'all', filters?: Record<string, string>) {
+    const params = new URLSearchParams({ q, type, ...filters });
     return this.request<{
       documents: import('@/types').Document[];
       users: import('@/types').User[];
@@ -142,27 +258,104 @@ class ApiClient {
       templates: import('@/types').Template[];
       workflows: import('@/types').WorkflowItem[];
       total: number;
-    }>(`/search?q=${encodeURIComponent(q)}&type=${type}`);
+    }>(`/search?${params}`);
   }
 
-  getDepartment(id: string) {
-    return this.request<import('@/types').Department & {
-      users: import('@/types').User[];
-      documents: import('@/types').Document[];
-    }>(`/departments/${id}`);
+  getReports() {
+    return this.request<{
+      kpis: {
+        totalDocuments: number;
+        newDocuments: number;
+        completedApprovals: number;
+        activeUsers: number;
+        storageGb: number;
+        pendingApprovals: number;
+        archived: number;
+        published: number;
+      };
+      byDepartment: { name: string; count: number; color?: string }[];
+      trend: { month: string; created: number; published: number }[];
+      byCategory: { category: string; count: number }[];
+      activityTimeline: import('@/types').AuditLog[];
+    }>('/reports');
   }
 
-  getUser(id: string) {
-    return this.request<import('@/types').User & {
-      createdAt: string;
-      counts: { documents: number; signatures: number; auditLogs: number };
-      recentActivity: import('@/types').AuditLog[];
-      recentDocs: import('@/types').Document[];
-    }>(`/users/${id}`);
+  getRoles() {
+    return this.request<{
+      roles: Array<{
+        id: string;
+        name: string;
+        description: string;
+        userCount: number;
+        isSystem: boolean;
+        permissions: Record<string, boolean[]>;
+      }>;
+      columns: string[];
+    }>('/roles');
   }
 
-  getTemplate(id: string) {
-    return this.request<import('@/types').Template>(`/templates/${id}`);
+  createUser(data: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+    departmentId?: string;
+  }) {
+    return this.request<import('@/types').User>('/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  updateUser(id: string, data: Record<string, unknown>) {
+    return this.request<import('@/types').User>(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  createDepartment(data: { name: string; code: string; color?: string; location?: string; description?: string }) {
+    return this.request<import('@/types').Department>('/departments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  addDocumentComment(documentId: string, text: string) {
+    return this.request<import('@/types').DocumentComment>(`/documents/${documentId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  resolveDocumentComment(documentId: string, commentId: string, status: 'open' | 'resolved') {
+    return this.request<import('@/types').DocumentComment>(`/documents/${documentId}/comments/${commentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  }
+
+  uploadDocumentFile(documentId: string, fileName: string, fileType: string, data: string, isAttachment = false) {
+    return this.request(`/documents/${documentId}/upload`, {
+      method: 'POST',
+      body: JSON.stringify({ fileName, fileType, data, isAttachment }),
+    });
+  }
+
+  createDocumentVersion(documentId: string, version?: string, changeNote?: string) {
+    return this.request<import('@/types').Document>(`/documents/${documentId}/version`, {
+      method: 'POST',
+      body: JSON.stringify({ version, changeNote }),
+    });
+  }
+
+  deleteDocument(documentId: string) {
+    return this.request(`/documents/${documentId}`, { method: 'DELETE' });
+  }
+
+  markNotificationRead(id: string) {
+    return this.request(`/notifications/${id}/read`, { method: 'PATCH' });
   }
 
   getNotifications() {
@@ -175,6 +368,84 @@ class ApiClient {
 
   markAllNotificationsRead() {
     return this.request('/notifications/mark-all-read', { method: 'POST' });
+  }
+
+  archiveDocument(id: string, reason?: string) {
+    return this.request(`/documents/${id}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  getSettingsStats() {
+    return this.request<{
+      systemVersion: string;
+      storageGb: number;
+      storageTotalGb: number;
+      storagePercent: number;
+      activeUsers: number;
+      licenseSeats: number;
+      uptime: string;
+      licenseTier: string;
+      licenseValidUntil: string;
+    }>('/settings/stats');
+  }
+
+  clearSystemCache() {
+    return this.request<{ ok: boolean; clearedAt: string }>('/settings/maintenance/clear-cache', { method: 'POST' });
+  }
+
+  reindexSearch() {
+    return this.request<{ ok: boolean; reindexedAt: string; version: number }>('/settings/maintenance/reindex', { method: 'POST' });
+  }
+
+  getMaintenanceLogs() {
+    return this.request<import('@/types').AuditLog[]>('/settings/maintenance/logs');
+  }
+
+  getRelatedDocuments(id: string) {
+    return this.request<import('@/types').Document[]>(`/documents/${id}/related`);
+  }
+
+  signDocument(id: string, pin: string) {
+    return this.request(`/documents/${id}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+    });
+  }
+
+  bulkArchiveDocuments(ids: string[], reason?: string) {
+    return this.request<{ ok: boolean; count: number }>('/documents/bulk/archive', {
+      method: 'POST',
+      body: JSON.stringify({ ids, reason }),
+    });
+  }
+
+  updateDepartment(id: string, data: Record<string, unknown>) {
+    return this.request<import('@/types').Department>(`/departments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  deleteTemplate(id: string) {
+    return this.request(`/templates/${id}`, { method: 'DELETE' });
+  }
+
+  deleteWorkflow(id: string) {
+    return this.request(`/workflows/${id}`, { method: 'DELETE' });
+  }
+
+  checkFavorite(documentId: string) {
+    return this.request<{ isFavorite: boolean }>(`/favorites/check/${documentId}`);
+  }
+
+  addFavorite(documentId: string) {
+    return this.request(`/favorites/${documentId}`, { method: 'POST' });
+  }
+
+  removeFavorite(documentId: string) {
+    return this.request(`/favorites/${documentId}`, { method: 'DELETE' });
   }
 }
 

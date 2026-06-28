@@ -54,6 +54,7 @@ router.post('/login', async (req: Request, res: Response) => {
       firstName: user.firstName,
       lastName: user.lastName,
       role: user.role,
+      signatureImage: user.signatureImage,
       department: user.department,
     },
   });
@@ -75,6 +76,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    signatureImage: user.signatureImage,
     department: user.department,
   });
 });

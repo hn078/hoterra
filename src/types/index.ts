@@ -28,12 +28,38 @@ export type DocumentCategory =
   | 'TRAINING_MATERIALS'
   | 'ARCHIVE';
 
+export type DocumentPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+
 export interface Department {
   id: string;
   name: string;
   code: string;
   color: string;
+  location?: string;
+  description?: string | null;
   _count?: { documents: number; users: number };
+  head?: { id: string; firstName: string; lastName: string; email: string; role: Role } | null;
+  sopStats?: { active: number; total: number };
+  stats?: { workflows: number; templates: number; underReview: number };
+}
+
+export interface DocumentComment {
+  id: string;
+  documentId: string;
+  text: string;
+  status: string;
+  createdAt: string;
+  user: { id: string; firstName: string; lastName: string };
+}
+
+export interface DocumentAttachment {
+  id: string;
+  documentId: string;
+  fileName: string;
+  filePath: string;
+  fileSize?: number | null;
+  fileType?: string | null;
+  createdAt: string;
 }
 
 export interface User {
@@ -42,7 +68,22 @@ export interface User {
   firstName: string;
   lastName: string;
   role: Role;
+  isActive?: boolean;
+  signatureImage?: string | null;
   department?: Department | null;
+}
+
+export type SignaturePageTarget = number | 'all';
+
+export interface SignaturePlacement {
+  id: string;
+  role: Role;
+  label: string;
+  page: SignaturePageTarget;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface Document {
@@ -63,10 +104,28 @@ export interface Document {
   nextReviewDate?: string | null;
   effectiveDate?: string | null;
   isLocked: boolean;
+  pageCount?: number;
+  signaturePlacement?: string | SignaturePlacement[];
+  priority?: DocumentPriority;
+  content?: string | null;
+  filePath?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
+  fileSize?: number | null;
+  archiveReason?: string | null;
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+  workflowId?: string | null;
+  allowDownload?: boolean;
+  allowComments?: boolean;
   createdAt: string;
   updatedAt: string;
   history?: DocumentHistory[];
   signatures?: Signature[];
+  comments?: DocumentComment[];
+  attachments?: DocumentAttachment[];
+  versions?: { id: string; version: string; changeNote?: string | null; createdAt: string }[];
+  workflow?: WorkflowItem | null;
 }
 
 export interface DocumentHistory {
@@ -81,6 +140,9 @@ export interface Signature {
   fullName: string;
   position: string;
   signedAt: string;
+  imagePath?: string | null;
+  placementId?: string | null;
+  page?: number | null;
   user?: { firstName: string; lastName: string; role: Role };
 }
 
@@ -90,9 +152,16 @@ export interface Template {
   description?: string | null;
   category: DocumentCategory;
   content?: string | null;
+  version?: string;
+  status?: string;
+  departmentId?: string | null;
+  department?: Department | null;
   isActive?: boolean;
+  pageCount?: number;
+  signaturePlacement?: string | SignaturePlacement[];
   createdAt?: string;
   updatedAt?: string;
+  _count?: { documents: number };
 }
 
 export interface Notification {
@@ -148,6 +217,14 @@ export interface DashboardStats {
     createdAt: string;
     document?: { title: string; code: string };
   }[];
+  upcomingReviews?: {
+    id: string;
+    title: string;
+    department: string;
+    category: DocumentCategory;
+    nextReviewDate: string | null;
+  }[];
+  trend?: { month: string; created: number; published: number }[];
 }
 
 export interface SystemSettings {
@@ -169,6 +246,10 @@ export interface SystemSettings {
   defaultStartPage: string;
   defaultDocSort: string;
   defaultDocStatus: string;
+  notifyEmail?: boolean;
+  notifyPush?: boolean;
+  notifyInApp?: boolean;
+  extended?: Record<string, unknown>;
 }
 
 export const STATUS_LABELS: Record<DocumentStatus, string> = {

@@ -10,18 +10,19 @@ import {
 } from 'lucide-react';
 import { Header, DepartmentBadge, StatusBadge } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
-import { StatCard } from '@/components/ui/StatCard';
+import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
-import type { Department, Document, User } from '@/types';
+import type { Department, Document, Template, User, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
-import { DEPARTMENT_META } from '@/data/mock';
 import { formatDate } from '@/lib/utils';
 
 type DepartmentDetail = Department & {
   users: User[];
   documents: Document[];
+  workflowList?: WorkflowItem[];
+  templateList?: Template[];
 };
 
 const TABS = [
@@ -37,12 +38,41 @@ export function DepartmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [dept, setDept] = useState<DepartmentDetail | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', location: '', description: '', color: '' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (id) {
       api.getDepartment(id).then(setDept).catch(console.error);
     }
   }, [id]);
+
+  const openEditModal = () => {
+    if (!dept) return;
+    setEditForm({
+      name: dept.name,
+      location: dept.location ?? 'Main Hotel',
+      description: dept.description ?? '',
+      color: dept.color,
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id) return;
+    setSaving(true);
+    try {
+      const updated = await api.updateDepartment(id, editForm);
+      setDept((prev) => (prev ? { ...prev, ...updated } : prev));
+      setShowEditModal(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update department');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (!dept) {
     return (
@@ -52,12 +82,7 @@ export function DepartmentDetailPage() {
     );
   }
 
-  const meta = DEPARTMENT_META[dept.code] ?? {
-    location: 'Main Hotel',
-    description: dept.name,
-    headEmail: '',
-  };
-  const head = dept.users.find(
+  const head = dept.head ?? dept.users.find(
     (u) => u.role === 'HOD' || u.role === 'GENERAL_MANAGER'
   );
   const sops = dept.documents.filter((d) => d.category === 'SOP');
@@ -65,7 +90,7 @@ export function DepartmentDetailPage() {
   const docCount = dept._count?.documents ?? dept.documents.length;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header title={dept.name} subtitle={`Department · ${dept.code}`} />
 
       <div className="border-b border-gray-200 bg-white px-6 pb-4 pt-2">
@@ -76,21 +101,24 @@ export function DepartmentDetailPage() {
           ]}
         />
 
-        <div className="mt-4 rounded-xl border border-gray-200 bg-gradient-to-r from-white to-gray-50 p-5">
+        <div className="card mt-4 bg-gradient-to-r from-white to-gray-50/80 p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4">
               <DepartmentBadge name={dept.code} color={dept.color} />
               <div>
                 <h2 className="text-lg font-bold text-hoterra-navy">{dept.name}</h2>
-                <p className="mt-1 max-w-xl text-sm text-gray-600">{meta.description}</p>
+                <p className="mt-1 max-w-xl text-sm text-gray-600">{dept.description ?? dept.name}</p>
                 <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
                   <span className="flex items-center gap-1.5">
                     <MapPin className="h-4 w-4 text-gray-400" />
-                    {meta.location}
+                    {dept.location ?? 'Main Hotel'}
                   </span>
                   <span className="font-mono text-xs text-gray-500">{dept.code}</span>
                 </div>
               </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={openEditModal} className="btn-secondary py-2 text-sm">Edit Department</button>
             </div>
             {head && (
               <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-4 py-3">
@@ -108,16 +136,20 @@ export function DepartmentDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 border-b border-gray-200 bg-gray-50 px-6 py-4 lg:grid-cols-4">
-        <StatCard label="Team Members" value={userCount} icon={Users} color="blue" />
-        <StatCard label="Documents" value={docCount} icon={FileText} color="green" />
-        <StatCard label="Active SOPs" value={sops.length} icon={BookOpen} color="purple" />
-        <StatCard label="Workflows" value={3} icon={GitBranch} color="orange" sub="Assigned routes" />
+      <div className="page-stats">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <DashStatCard label="Team Members" value={userCount} icon={Users} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <DashStatCard label="Documents" value={docCount} icon={FileText} iconColor="text-green-600" iconBg="bg-green-50" />
+          <DashStatCard label="Active SOPs" value={sops.length} icon={BookOpen} iconColor="text-purple-600" iconBg="bg-purple-50" />
+          <DashStatCard label="Workflows" value={dept.stats?.workflows ?? 0} icon={GitBranch} iconColor="text-orange-600" iconBg="bg-orange-50" />
+          <DashStatCard label="Templates" value={dept.stats?.templates ?? 0} icon={FileText} iconColor="text-cyan-600" iconBg="bg-cyan-50" />
+          <DashStatCard label="Under Review" value={dept.stats?.underReview ?? 0} icon={BookOpen} iconColor="text-amber-600" iconBg="bg-amber-50" />
+        </div>
       </div>
 
       <PageTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
+      <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Widget title="Team Members" icon={Users} action={`${userCount} total`}>
@@ -184,30 +216,24 @@ export function DepartmentDetailPage() {
 
             <Widget title="Workflows" icon={GitBranch}>
               <div className="space-y-2">
-                {[
-                  { name: 'Standard Document Approval', steps: 8, status: 'active' },
-                  { name: 'SOP Review Process', steps: 6, status: 'active' },
-                  { name: 'Policy Publication', steps: 5, status: 'draft' },
-                ].map((wf) => (
-                  <div
-                    key={wf.name}
-                    className="flex items-center justify-between rounded-lg border border-gray-100 p-3"
+                {(dept.workflowList ?? []).slice(0, 4).map((wf) => (
+                  <Link
+                    key={wf.id}
+                    to={`/workflows/${wf.id}/design`}
+                    className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
                   >
                     <div>
                       <p className="text-sm font-medium text-gray-800">{wf.name}</p>
-                      <p className="text-xs text-gray-500">{wf.steps} steps</p>
+                      <p className="text-xs text-gray-500">{wf.steps.length} steps</p>
                     </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        wf.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {wf.status === 'active' ? 'Active' : 'Draft'}
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${wf.isDefault ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {wf.isDefault ? 'Default' : 'Active'}
                     </span>
-                  </div>
+                  </Link>
                 ))}
+                {(dept.workflowList ?? []).length === 0 && (
+                  <p className="py-4 text-center text-sm text-gray-400">No workflows</p>
+                )}
               </div>
             </Widget>
           </div>
@@ -251,14 +277,95 @@ export function DepartmentDetailPage() {
           <DocList docs={sops} empty="No SOPs in this department" />
         )}
 
-        {!['overview', 'users', 'documents', 'sops'].includes(activeTab) && (
-          <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white">
-            <p className="text-sm text-gray-400">
-              {TABS.find((t) => t.id === activeTab)?.label} — coming in next release
-            </p>
+        {activeTab === 'workflows' && (
+          <div className="rounded-xl border border-gray-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Workflow</th>
+                  <th className="px-4 py-3 font-medium">Steps</th>
+                  <th className="px-4 py-3 font-medium">Default</th>
+                  <th className="px-4 py-3 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(dept.workflowList ?? []).map((wf) => (
+                  <tr key={wf.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-hoterra-navy">{wf.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{wf.steps.length}</td>
+                    <td className="px-4 py-3">{wf.isDefault ? 'Yes' : 'No'}</td>
+                    <td className="px-4 py-3">
+                      <Link to={`/workflows/${wf.id}/design`} className="text-hoterra-steel hover:underline">Design →</Link>
+                    </td>
+                  </tr>
+                ))}
+                {(dept.workflowList ?? []).length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No workflows</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === 'templates' && (
+          <div className="rounded-xl border border-gray-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Template</th>
+                  <th className="px-4 py-3 font-medium">Category</th>
+                  <th className="px-4 py-3 font-medium">Version</th>
+                  <th className="px-4 py-3 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(dept.templateList ?? []).map((t) => (
+                  <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-hoterra-navy">{t.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{CATEGORY_LABELS[t.category]}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{t.version ?? '1.0'}</td>
+                    <td className="px-4 py-3">
+                      <Link to={`/templates/${t.id}/edit`} className="text-hoterra-steel hover:underline">Edit →</Link>
+                    </td>
+                  </tr>
+                ))}
+                {(dept.templateList ?? []).length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No templates</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-lg font-bold text-hoterra-navy">Edit Department</h2>
+            <form onSubmit={handleSaveDepartment} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Name</label>
+                <input required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="input" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Location</label>
+                <select value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} className="input">
+                  <option value="Main Hotel">Main Hotel</option>
+                  <option value="Head Office">Head Office</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Description</label>
+                <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} rows={3} className="input" />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowEditModal(false)} className="btn-secondary">Cancel</button>
+                <button type="submit" disabled={saving} className="btn-primary disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -275,7 +382,7 @@ function Widget({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="card p-5">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-hoterra-steel" />

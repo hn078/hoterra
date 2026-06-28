@@ -12,16 +12,19 @@ import {
 } from 'lucide-react';
 import { Header, DepartmentBadge } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
-import { StatCard } from '@/components/ui/StatCard';
+import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
+import { useAuthStore } from '@/store/auth';
+import { uploadUrl } from '@/lib/signatures';
 import type { AuditLog, Document, User } from '@/types';
 import { ROLE_LABELS } from '@/types';
 import { mapAuditAction, ROLE_DEFINITIONS } from '@/data/mock';
 import { formatDate, formatDateTime, timeAgo } from '@/lib/utils';
 
 type UserDetail = User & {
+  signatureImage?: string | null;
   createdAt: string;
   counts: { documents: number; signatures: number; auditLogs: number };
   recentActivity: AuditLog[];
@@ -49,8 +52,34 @@ function roleToDefinitionId(role: User['role']): string {
 
 export function UserProfilePage() {
   const { id } = useParams<{ id: string }>();
+  const currentUser = useAuthStore((s) => s.user);
   const [user, setUser] = useState<UserDetail | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [uploadingSignature, setUploadingSignature] = useState(false);
+
+  const canEditSignature = Boolean(id && currentUser && (currentUser.id === id || currentUser.role === 'SYSTEM_ADMINISTRATOR' || currentUser.role === 'GENERAL_MANAGER'));
+
+  const handleSignatureUpload = async (file: File) => {
+    if (!id || !canEditSignature) return;
+    setUploadingSignature(true);
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const updated = await api.uploadUserSignature(id, file.name, data);
+      setUser((prev) => (prev ? { ...prev, signatureImage: updated.signatureImage } : prev));
+      if (currentUser?.id === id) {
+        useAuthStore.setState({ user: { ...currentUser, signatureImage: updated.signatureImage } });
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to upload signature');
+    } finally {
+      setUploadingSignature(false);
+    }
+  };
 
   useEffect(() => {
     if (id) {
@@ -72,7 +101,7 @@ export function UserProfilePage() {
     : [];
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title={`${user.firstName} ${user.lastName}`}
         subtitle={ROLE_LABELS[user.role]}
@@ -87,22 +116,19 @@ export function UserProfilePage() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 border-b border-gray-200 bg-gray-50 px-6 py-4 lg:grid-cols-4">
-        <StatCard label="Documents Created" value={user.counts.documents} icon={FileText} color="blue" />
-        <StatCard label="Signatures" value={user.counts.signatures} icon={PenLine} color="green" />
-        <StatCard label="Audit Events" value={user.counts.auditLogs} icon={Activity} color="purple" />
-        <StatCard
-          label="Member Since"
-          value={formatDate(user.createdAt)}
-          icon={Calendar}
-          color="gray"
-        />
+      <div className="page-stats">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <DashStatCard label="Documents Created" value={user.counts.documents} icon={FileText} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <DashStatCard label="Signatures" value={user.counts.signatures} icon={PenLine} iconColor="text-green-600" iconBg="bg-green-50" />
+          <DashStatCard label="Audit Events" value={user.counts.auditLogs} icon={Activity} iconColor="text-purple-600" iconBg="bg-purple-50" />
+          <DashStatCard label="Member Since" value={formatDate(user.createdAt)} icon={Calendar} iconColor="text-gray-600" iconBg="bg-gray-100" />
+        </div>
       </div>
 
       <PageTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-5">
+      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
+        <aside className="card w-72 shrink-0 overflow-y-auto rounded-none border-r border-t-0 border-l-0 border-b-0 p-5 shadow-none">
           <div className="flex flex-col items-center text-center">
             <UserAvatar firstName={user.firstName} lastName={user.lastName} size="lg" />
             <h2 className="mt-3 text-lg font-bold text-hoterra-navy">
@@ -124,9 +150,45 @@ export function UserProfilePage() {
             <InfoItem icon={Shield} label="Role" value={ROLE_LABELS[user.role]} />
             <InfoItem icon={Calendar} label="Joined" value={formatDate(user.createdAt)} />
           </dl>
+
+          <div className="mt-6 border-t border-gray-100 pt-5">
+            <h3 className="mb-2 text-sm font-semibold text-hoterra-navy">Signing Signature</h3>
+            <p className="mb-3 text-xs text-gray-500">
+              Upload a PNG or JPG image of your handwritten signature. It will be placed on documents when you sign.
+            </p>
+            {user.signatureImage ? (
+              <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3">
+                <img
+                  src={uploadUrl(user.signatureImage)}
+                  alt="User signature"
+                  className="mx-auto max-h-16 w-full object-contain"
+                />
+              </div>
+            ) : (
+              <p className="mb-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                No signature uploaded yet
+              </p>
+            )}
+            {canEditSignature && (
+              <label className="btn-secondary w-full cursor-pointer py-2 text-xs">
+                {uploadingSignature ? 'Uploading...' : user.signatureImage ? 'Replace Signature' : 'Upload Signature'}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden"
+                  disabled={uploadingSignature}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleSignatureUpload(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            )}
+          </div>
         </aside>
 
-        <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
+        <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ProfileWidget title="User Information" icon={Shield}>
@@ -300,7 +362,7 @@ function ProfileWidget({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="card p-5">
       <div className="mb-4 flex items-center gap-2">
         <Icon className="h-4 w-4 text-hoterra-steel" />
         <h3 className="font-semibold text-hoterra-navy">{title}</h3>

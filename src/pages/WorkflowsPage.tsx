@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   GitBranch,
   Plus,
@@ -15,22 +15,43 @@ import type { WorkflowItem } from '@/types';
 import { cn } from '@/lib/utils';
 
 export function WorkflowsPage() {
+  const navigate = useNavigate();
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [view, setView] = useState<'cards' | 'table'>('cards');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     api.getWorkflows().then(setWorkflows).catch(console.error);
   }, []);
 
+  const handleNewWorkflow = async () => {
+    setCreating(true);
+    try {
+      const wf = await api.createWorkflow({
+        name: 'New Workflow',
+        description: 'Configure approval route',
+      });
+      navigate(`/workflows/${wf.id}/designer`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create workflow');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Workflows"
         subtitle="Configure document approval routes and processes"
         action={
-          <button className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white hover:bg-hoterra-steel">
+          <button
+            onClick={handleNewWorkflow}
+            disabled={creating}
+            className="btn-primary disabled:opacity-50"
+          >
             <Plus className="h-4 w-4" />
-            New Workflow
+            {creating ? 'Creating...' : 'New Workflow'}
           </button>
         }
       />
@@ -63,7 +84,7 @@ export function WorkflowsPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
+      <div className="page-content">
         {view === 'cards' ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {workflows.map((wf) => (
@@ -71,7 +92,7 @@ export function WorkflowsPage() {
             ))}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="card overflow-hidden">
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
@@ -131,7 +152,7 @@ function WorkflowCard({ workflow }: { workflow: WorkflowItem }) {
   return (
     <Link
       to={`/workflows/${workflow.id}/designer`}
-      className="group rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:border-hoterra-steel hover:shadow-md"
+      className="card group p-5 transition-shadow hover:border-hoterra-steel/40 hover:shadow-md"
     >
       <div className="mb-3 flex items-start justify-between">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-hoterra-steel/10">

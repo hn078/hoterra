@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Check, Search, Upload, Bold, Italic, List, Link2 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { api } from '@/lib/api';
-import type { Department, Template, User, DocumentCategory, WorkflowItem } from '@/types';
+import type { Department, Template, User, DocumentCategory, DocumentPriority, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS } from '@/types';
 import { formatDate } from '@/lib/utils';
 
@@ -23,6 +23,7 @@ export function CreateDocumentPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     title: 'Credit Card Handling Procedure',
@@ -40,6 +41,7 @@ export function CreateDocumentPage() {
     authorId: '',
     content: '',
     workflowId: '',
+    priority: 'MEDIUM' as DocumentPriority,
     isPublic: false,
     allowDownload: true,
     allowComments: true,
@@ -80,13 +82,51 @@ export function CreateDocumentPage() {
   };
   const getWorkflowName = () => workflows.find((w) => w.id === form.workflowId)?.name || '—';
 
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1] ?? result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const createWithUpload = async () => {
+    const doc = await api.createDocument({
+      title: form.title,
+      code: form.code,
+      departmentId: form.departmentId,
+      category: form.category,
+      version: form.version,
+      description: form.description,
+      language: form.language,
+      tags: form.tags,
+      nextReviewDate: form.nextReviewDate,
+      effectiveDate: form.effectiveDate,
+      ownerId: form.ownerId,
+      authorId: form.authorId,
+      content: form.content,
+      workflowId: form.workflowId || undefined,
+      priority: form.priority,
+      allowDownload: form.allowDownload,
+      allowComments: form.allowComments,
+      templateId: selectedTemplate,
+    });
+
+    if (selectedFile) {
+      const data = await readFileAsBase64(selectedFile);
+      await api.uploadDocumentFile(doc.id, selectedFile.name, selectedFile.type, data);
+    }
+
+    return doc;
+  };
+
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
-      const doc = await api.createDocument({
-        ...form,
-        templateId: selectedTemplate,
-      });
+      const doc = await createWithUpload();
       navigate(`/documents/${doc.id}`);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to save');
@@ -98,10 +138,7 @@ export function CreateDocumentPage() {
   const handleSubmit = async () => {
     setSaving(true);
     try {
-      const doc = await api.createDocument({
-        ...form,
-        templateId: selectedTemplate,
-      });
+      const doc = await createWithUpload();
       navigate(`/documents/${doc.id}`);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to create document');
@@ -110,57 +147,59 @@ export function CreateDocumentPage() {
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
   const goNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
   const goBack = () => setStep((s) => Math.max(s - 1, 0));
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Create Document"
         subtitle="Documents › Create Document"
         action={
-          <button
-            onClick={() => navigate('/documents')}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-          >
+          <button onClick={() => navigate('/documents')} className="btn-secondary">
             Cancel
           </button>
         }
       />
 
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-2 overflow-x-auto">
+      <div className="border-b border-gray-200 bg-white px-6 py-5">
+        <div className="flex items-center justify-between overflow-x-auto">
           {STEPS.map((stepName, i) => (
-            <div key={stepName} className="flex items-center gap-2">
-              <div
-                className={`flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ${
-                  i === step
-                    ? 'bg-hoterra-gold/20 text-hoterra-gold'
-                    : i < step
-                      ? 'text-hoterra-steel'
-                      : 'text-gray-400'
-                }`}
-              >
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${
+            <div key={stepName} className="flex flex-1 items-center">
+              <div className="flex flex-col items-center gap-1.5">
+                <div
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
                     i === step
-                      ? 'bg-hoterra-gold text-white'
+                      ? 'bg-hoterra-gold text-white ring-4 ring-hoterra-gold/20'
                       : i < step
                         ? 'bg-hoterra-steel text-white'
                         : 'bg-gray-200 text-gray-500'
                   }`}
                 >
-                  {i < step ? <Check className="h-3 w-3" /> : i + 1}
+                  {i < step ? <Check className="h-4 w-4" /> : i + 1}
+                </div>
+                <span
+                  className={`whitespace-nowrap text-xs font-medium ${
+                    i === step ? 'text-hoterra-gold' : i < step ? 'text-hoterra-steel' : 'text-gray-400'
+                  }`}
+                >
+                  {stepName}
                 </span>
-                {stepName}
               </div>
-              {i < STEPS.length - 1 && <div className="h-px w-8 bg-gray-200" />}
+              {i < STEPS.length - 1 && (
+                <div className={`mx-2 mb-5 h-0.5 flex-1 ${i < step ? 'bg-hoterra-steel' : 'bg-gray-200'}`} />
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mx-auto max-w-3xl">
             {step === 0 && (
@@ -293,6 +332,20 @@ export function CreateDocumentPage() {
                   </div>
                 </Field>
 
+                <Field label="Priority">
+                  <select
+                    value={form.priority}
+                    onChange={(e) =>
+                      setForm({ ...form, priority: e.target.value as DocumentPriority })
+                    }
+                    className="input"
+                  >
+                    <option value="HIGH">High</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="LOW">Low</option>
+                  </select>
+                </Field>
+
                 <Field label="Description">
                   <textarea
                     value={form.description}
@@ -324,12 +377,15 @@ export function CreateDocumentPage() {
                     <p className="mt-1 text-xs text-gray-400">
                       PDF, DOCX, XLSX, PPTX up to 25MB
                     </p>
-                    <button
-                      type="button"
-                      className="mt-4 rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-white"
-                    >
-                      Browse Files
-                    </button>
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                      onChange={handleFileChange}
+                      className="mt-4 block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-hoterra-navy file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-hoterra-steel"
+                    />
+                    {selectedFile && (
+                      <p className="mt-2 text-xs text-green-600">Selected: {selectedFile.name}</p>
+                    )}
                   </div>
                 </Field>
 
@@ -465,10 +521,15 @@ export function CreateDocumentPage() {
                   <SummaryRow label="Language" value={form.language} />
                   <SummaryRow label="Effective Date" value={formatDate(form.effectiveDate)} />
                   <SummaryRow label="Next Review" value={formatDate(form.nextReviewDate)} />
+                  <SummaryRow label="Priority" value={form.priority.charAt(0) + form.priority.slice(1).toLowerCase()} />
                   <SummaryRow label="Tags" value={form.tags.join(', ') || '—'} />
                 </SummarySection>
 
                 <SummarySection title="Content">
+                  <SummaryRow
+                    label="File"
+                    value={selectedFile ? selectedFile.name : 'No file selected'}
+                  />
                   <SummaryRow
                     label="Content"
                     value={form.content ? `${form.content.slice(0, 80)}...` : 'No content added (upload or enter text)'}
@@ -492,7 +553,7 @@ export function CreateDocumentPage() {
         </div>
 
         {step === 0 && (
-          <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-5">
+          <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Choose Template</h3>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -563,7 +624,7 @@ export function CreateDocumentPage() {
             <button
               type="button"
               onClick={goNext}
-              className="rounded-lg bg-hoterra-navy px-5 py-2.5 text-sm font-medium text-white hover:bg-hoterra-steel"
+              className="btn-primary px-5 py-2.5"
             >
               Next: {STEPS[step + 1]} →
             </button>
@@ -572,7 +633,7 @@ export function CreateDocumentPage() {
               type="button"
               onClick={handleSubmit}
               disabled={saving}
-              className="rounded-lg bg-hoterra-navy px-5 py-2.5 text-sm font-medium text-white hover:bg-hoterra-steel disabled:opacity-50"
+              className="btn-primary px-5 py-2.5 disabled:opacity-50"
             >
               {saving ? 'Creating...' : 'Create Document'}
             </button>

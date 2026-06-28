@@ -12,4 +12,44 @@
   .input {
     @apply w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel;
   }
+
+  .page-content {
+    @apply flex-1 overflow-y-auto bg-hoterra-page p-6;
+  }
+
+  .page-stats {
+    @apply bg-hoterra-page px-6 pt-6;
+  }
+
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white shadow-card;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-hoterra-steel disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50;
+  }
+
+  .nav-active {
+    @apply bg-hoterra-gold text-hoterra-navy font-medium;
+  }
+
+  .tab-active {
+    @apply border-b-2 border-hoterra-steel text-hoterra-navy font-medium;
+  }
+
+  .badge-pill {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .filter-select {
+    @apply rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-hoterra-steel focus:outline-none;
+  }
+
+  .settings-nav-active {
+    @apply bg-blue-50 text-blue-700 font-medium;
+  }
 }

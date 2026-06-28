@@ -34,6 +34,7 @@ export function WorkflowDesignerPage() {
   const { id } = useParams<{ id: string }>();
   const [workflow, setWorkflow] = useState<WorkflowItem | null>(null);
   const [selectedStepId, setSelectedStepId] = useState(WORKFLOW_STEPS[1]?.id ?? '');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -43,16 +44,61 @@ export function WorkflowDesignerPage() {
 
   const selectedStep = WORKFLOW_STEPS.find((s) => s.id === selectedStepId);
 
+  const handleSave = async () => {
+    if (!id || !workflow) return;
+    setSaving(true);
+    try {
+      await api.updateWorkflow(id, {
+        name: workflow.name,
+        description: workflow.description ?? undefined,
+        steps: workflow.steps,
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to save workflow');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleValidate = () => {
+    if (!workflow?.steps?.length) {
+      alert('Workflow must have at least one step');
+      return;
+    }
+    alert('Workflow is valid');
+  };
+
+  const handlePublish = async () => {
+    if (!id || !workflow) return;
+    if (!workflow.steps?.length) {
+      alert('Workflow must have at least one step before publishing');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.updateWorkflow(id, {
+        name: workflow.name,
+        description: workflow.description ?? undefined,
+        steps: workflow.steps,
+      });
+      alert('Workflow published successfully');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to publish workflow');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title={workflow?.name ?? 'Workflow Designer'}
         subtitle={workflow?.description ?? 'Design approval route'}
         action={
           <div className="flex items-center gap-2">
-            <ToolbarBtn icon={Save} label="Save" variant="outline" />
-            <ToolbarBtn icon={CheckCircle} label="Validate" variant="outline" />
-            <ToolbarBtn icon={Upload} label="Publish" variant="primary" />
+            <ToolbarBtn icon={Save} label={saving ? 'Saving...' : 'Save'} variant="outline" onClick={handleSave} disabled={saving} />
+            <ToolbarBtn icon={CheckCircle} label="Validate" variant="outline" onClick={handleValidate} />
+            <ToolbarBtn icon={Upload} label="Publish" variant="primary" onClick={handlePublish} />
           </div>
         }
       />
@@ -66,8 +112,8 @@ export function WorkflowDesignerPage() {
         />
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-56 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-4">
+      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
+        <aside className="card w-56 shrink-0 overflow-y-auto rounded-none border-r border-t-0 border-l-0 border-b-0 p-4 shadow-none">
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
             Step Palette
           </h3>
@@ -123,7 +169,7 @@ export function WorkflowDesignerPage() {
           </div>
         </div>
 
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-5">
+        <aside className="card w-72 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
           <div className="mb-4 flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-hoterra-steel" />
             <h3 className="font-semibold text-hoterra-navy">Step Properties</h3>
@@ -215,15 +261,21 @@ function ToolbarBtn({
   icon: Icon,
   label,
   variant,
+  onClick,
+  disabled,
 }: {
   icon: React.ElementType;
   label: string;
   variant: 'outline' | 'primary';
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
+      onClick={onClick}
+      disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium',
+        'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50',
         variant === 'primary'
           ? 'bg-hoterra-navy text-white hover:bg-hoterra-steel'
           : 'border border-gray-200 text-gray-700 hover:bg-gray-50'

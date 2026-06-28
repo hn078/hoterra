@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -29,32 +29,35 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
-import { StatCard } from '@/components/ui/StatCard';
-import { REPORTS_CHART_DATA } from '@/data/mock';
+import { DashStatCard } from '@/components/ui/DashStatCard';
 import { formatDateTime } from '@/lib/utils';
+import { api } from '@/lib/api';
+import type { AuditLog } from '@/types';
 
-const KPI_CARDS = [
-  { label: 'Total Documents', value: '12,568', sub: '↑ 18.4% vs previous period', icon: FileText, color: 'blue' as const },
-  { label: 'New Documents', value: '2,458', sub: '↑ 12.1% vs previous period', icon: FilePlus, color: 'green' as const },
-  { label: 'Completed Approvals', value: '1,985', sub: '↑ 8.7% vs previous period', icon: CheckCircle, color: 'purple' as const },
-  { label: 'Active Users', value: '134', sub: '↑ 5.2% vs previous period', icon: Users, color: 'orange' as const },
-  { label: 'Storage Used', value: '256.8 GB', sub: '↑ 3.4% vs previous period', icon: HardDrive, color: 'cyan' as const },
-];
+type ReportKpis = {
+  totalDocuments: number;
+  newDocuments: number;
+  completedApprovals: number;
+  activeUsers: number;
+  storageGb: number;
+  pendingApprovals: number;
+  archived: number;
+};
 
-const TOP_DOC_TYPES = [
-  { type: 'PDF', count: 4200 },
-  { type: 'DOCX', count: 3100 },
-  { type: 'XLSX', count: 2800 },
-  { type: 'PPTX', count: 1500 },
-  { type: 'Other', count: 968 },
-];
-
-const ACTIVITY_TIMELINE = [
-  { day: 'May 1', logins: 45, actions: 120 },
-  { day: 'May 3', logins: 52, actions: 145 },
-  { day: 'May 5', logins: 48, actions: 132 },
-  { day: 'May 7', logins: 61, actions: 168 },
-  { day: 'May 10', logins: 58, actions: 190 },
+const KPI_CARDS: {
+  label: string;
+  key: keyof ReportKpis;
+  sub: string;
+  icon: typeof FileText;
+  iconColor: string;
+  iconBg: string;
+  format?: (v: number) => string;
+}[] = [
+  { label: 'Total Documents', key: 'totalDocuments', sub: '↑ 18.4% vs previous period', icon: FileText, iconColor: 'text-blue-600', iconBg: 'bg-blue-50' },
+  { label: 'New Documents', key: 'newDocuments', sub: '↑ 12.1% vs previous period', icon: FilePlus, iconColor: 'text-green-600', iconBg: 'bg-green-50' },
+  { label: 'Completed Approvals', key: 'completedApprovals', sub: '↑ 8.7% vs previous period', icon: CheckCircle, iconColor: 'text-purple-600', iconBg: 'bg-purple-50' },
+  { label: 'Active Users', key: 'activeUsers', sub: '↑ 5.2% vs previous period', icon: Users, iconColor: 'text-orange-600', iconBg: 'bg-orange-50' },
+  { label: 'Storage Used', key: 'storageGb', sub: '↑ 3.4% vs previous period', icon: HardDrive, iconColor: 'text-cyan-600', iconBg: 'bg-cyan-50', format: (v) => `${v} GB` },
 ];
 
 const STORAGE_USAGE = [
@@ -77,12 +80,38 @@ export function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('2025-05-01');
   const [dateTo, setDateTo] = useState('2025-05-10');
   const [compare, setCompare] = useState('previous');
+  const [kpis, setKpis] = useState<ReportKpis | null>(null);
+  const [trend, setTrend] = useState<{ month: string; created: number; published: number }[]>([]);
+  const [byDepartment, setByDepartment] = useState<{ name: string; count: number; color?: string }[]>([]);
+  const [byCategory, setByCategory] = useState<{ category: string; count: number }[]>([]);
+  const [activityTimeline, setActivityTimeline] = useState<AuditLog[]>([]);
 
-  const deptTotal = REPORTS_CHART_DATA.byDepartment.reduce((s, d) => s + d.value, 0);
-  const approvalTotal = REPORTS_CHART_DATA.approvalPerformance.reduce((s, d) => s + d.value, 0);
+  useEffect(() => {
+    api
+      .getReports()
+      .then((data) => {
+        setKpis(data.kpis);
+        setTrend(data.trend);
+        setByDepartment(data.byDepartment);
+        setByCategory(data.byCategory);
+        setActivityTimeline(data.activityTimeline);
+      })
+      .catch(console.error);
+  }, []);
+
+  const deptTotal = byDepartment.reduce((s, d) => s + d.count, 0);
+  const activityChartData = activityTimeline.map((log) => ({
+    day: formatDateTime(log.createdAt).split(',')[0],
+    actions: 1,
+    label: log.action,
+  }));
+  const categoryChartData = byCategory.map((c) => ({
+    type: c.category.replace(/_/g, ' '),
+    count: c.count,
+  }));
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Reports & Analytics"
         subtitle="Gain insights and make data-driven decisions"
@@ -92,60 +121,63 @@ export function ReportsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm">
             <Calendar className="h-4 w-4 text-gray-400" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="border-none bg-transparent text-sm focus:outline-none"
-            />
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border-none bg-transparent text-sm focus:outline-none" />
             <span className="text-gray-400">–</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="border-none bg-transparent text-sm focus:outline-none"
-            />
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border-none bg-transparent text-sm focus:outline-none" />
           </div>
-          <select
-            value={compare}
-            onChange={(e) => setCompare(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
+          <select value={compare} onChange={(e) => setCompare(e.target.value)} className="filter-select">
             <option value="previous">Compare: Previous Period</option>
             <option value="year">Compare: Same Period Last Year</option>
             <option value="none">No Comparison</option>
           </select>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+          <button className="btn-secondary py-2.5">
             <Filter className="h-4 w-4" />
             Filter
           </button>
-          <button className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white hover:bg-hoterra-steel">
+          <button className="btn-primary">
             <Download className="h-4 w-4" />
             Export
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="page-content">
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {KPI_CARDS.map((card) => (
-            <StatCard key={card.label} {...card} />
-          ))}
+          {KPI_CARDS.map((card) => {
+            const raw = kpis?.[card.key];
+            const value =
+              raw !== undefined
+                ? card.format
+                  ? card.format(raw)
+                  : raw.toLocaleString()
+                : '—';
+            return (
+              <DashStatCard
+                key={card.label}
+                label={card.label}
+                value={value}
+                sub={card.sub}
+                icon={card.icon}
+                iconColor={card.iconColor}
+                iconBg={card.iconBg}
+                sparkline
+              />
+            );
+          })}
         </div>
 
         <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ChartCard title="Documents Overview" link="View Details">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={REPORTS_CHART_DATA.documentsOverview}>
+                <LineChart data={trend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Legend />
-                  <Line type="monotone" dataKey="created" stroke="#294660" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="uploaded" stroke="#22C55E" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="deleted" stroke="#EF4444" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="created" stroke="#294660" strokeWidth={2} dot={false} name="Created" />
+                  <Line type="monotone" dataKey="published" stroke="#22C55E" strokeWidth={2} dot={false} name="Published" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -157,32 +189,32 @@ export function ReportsPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={REPORTS_CHART_DATA.byDepartment}
+                      data={byDepartment}
                       cx="50%"
                       cy="50%"
                       innerRadius={55}
                       outerRadius={80}
                       paddingAngle={2}
-                      dataKey="value"
+                      dataKey="count"
                     >
-                      {REPORTS_CHART_DATA.byDepartment.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
+                      {byDepartment.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color || '#294660'} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => `${v}%`} />
+                    <Tooltip />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <div className="text-xl font-bold text-hoterra-navy">{deptTotal.toFixed(0)}%</div>
+                  <div className="text-xl font-bold text-hoterra-navy">{deptTotal}</div>
                   <div className="text-xs text-gray-500">Total</div>
                 </div>
               </div>
               <div className="flex-1 space-y-2 text-xs">
-                {REPORTS_CHART_DATA.byDepartment.map((d) => (
+                {byDepartment.map((d) => (
                   <div key={d.name} className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.color }} />
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.color || '#294660' }} />
                     <span className="flex-1 text-gray-600">{d.name}</span>
-                    <span className="font-medium">{d.value}%</span>
+                    <span className="font-medium">{d.count}</span>
                   </div>
                 ))}
               </div>
@@ -190,48 +222,17 @@ export function ReportsPage() {
           </ChartCard>
 
           <ChartCard title="Approval Performance" link="View Details">
-            <div className="flex items-center gap-4">
-              <div className="relative h-56 w-56 shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={REPORTS_CHART_DATA.approvalPerformance}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={80}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {REPORTS_CHART_DATA.approvalPerformance.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => `${v}%`} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <div className="text-xl font-bold text-hoterra-navy">{approvalTotal.toFixed(0)}%</div>
-                </div>
-              </div>
-              <div className="flex-1 space-y-2 text-xs">
-                {REPORTS_CHART_DATA.approvalPerformance.map((d) => (
-                  <div key={d.name} className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.color }} />
-                    <span className="flex-1 text-gray-600">{d.name}</span>
-                    <span className="font-medium">{d.value}%</span>
-                  </div>
-                ))}
-              </div>
+            <div className="flex h-64 items-center justify-center text-sm text-gray-400">
+              Approval metrics available in KPI cards above
             </div>
           </ChartCard>
 
-          <ChartCard title="Top Document Types" link="View Details">
+          <ChartCard title="Documents by Category" link="View Details">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={TOP_DOC_TYPES} layout="vertical" margin={{ left: 0, right: 16 }}>
+                <BarChart data={categoryChartData} layout="vertical" margin={{ left: 0, right: 16 }}>
                   <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="type" width={60} tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="type" width={100} tick={{ fontSize: 10 }} />
                   <Tooltip />
                   <Bar dataKey="count" fill="#294660" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -241,17 +242,21 @@ export function ReportsPage() {
 
           <ChartCard title="Activity Timeline" link="View Details">
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ACTIVITY_TIMELINE}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="logins" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actions" fill="#22C55E" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {activityChartData.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-gray-400">
+                  No recent activity
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={activityChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="actions" fill="#22C55E" radius={[4, 4, 0, 0]} name="Events" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </ChartCard>
 
@@ -270,7 +275,7 @@ export function ReportsPage() {
           </ChartCard>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white">
+        <div className="card overflow-hidden">
           <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
             <h3 className="font-semibold text-hoterra-navy">Recent Reports</h3>
             <button className="text-sm font-medium text-hoterra-steel hover:underline">
@@ -338,7 +343,7 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
+    <div className="card p-5">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-semibold text-hoterra-navy">{title}</h3>
         <button className="text-xs font-medium text-hoterra-steel hover:underline">{link}</button>

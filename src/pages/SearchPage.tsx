@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Search,
   Bookmark,
@@ -55,7 +55,8 @@ const EMPTY_RESULTS: SearchResults = {
 };
 
 export function SearchPage() {
-  const [query, setQuery] = useState('financial report Q2');
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(false);
@@ -69,6 +70,23 @@ export function SearchPage() {
     department: 'all',
     includeArchived: false,
   });
+
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) setQuery(q);
+  }, [searchParams]);
+
+  const buildFilterParams = (): Record<string, string> => {
+    const params: Record<string, string> = {};
+    if (filters.searchIn !== 'all') params.searchIn = filters.searchIn;
+    if (filters.fileType !== 'all') params.fileType = filters.fileType;
+    if (filters.module !== 'all') params.module = filters.module;
+    if (filters.dateRange !== 'custom') params.dateRange = filters.dateRange;
+    if (filters.createdBy !== 'all') params.createdBy = filters.createdBy;
+    if (filters.department !== 'all') params.department = filters.department;
+    if (filters.includeArchived) params.includeArchived = 'true';
+    return params;
+  };
 
   useEffect(() => {
     if (!query.trim()) {
@@ -101,7 +119,7 @@ export function SearchPage() {
     if (query.trim()) {
       setLoading(true);
       api
-        .search(query.trim(), activeTab)
+        .search(query.trim(), activeTab, buildFilterParams())
         .then(setResults)
         .catch(console.error)
         .finally(() => setLoading(false));
@@ -109,7 +127,7 @@ export function SearchPage() {
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Search"
         subtitle="Find documents, users, departments, workflows and more"
@@ -119,7 +137,7 @@ export function SearchPage() {
               <Lightbulb className="h-4 w-4" />
               Search Tips
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50">
+            <button className="btn-secondary">
               <Bookmark className="h-4 w-4" />
               Save Search
             </button>
@@ -129,39 +147,41 @@ export function SearchPage() {
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="border-b border-gray-200 bg-white px-6 py-4">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+          <div className="border-b border-gray-200 bg-white px-6 py-6">
+            <div className="relative mx-auto max-w-4xl">
+              <Search className="absolute left-4 top-1/2 h-6 w-6 -translate-y-1/2 text-gray-400" />
               <input
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search documents, users, departments..."
-                className="w-full rounded-xl border border-gray-200 py-3 pl-12 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
+                placeholder="Search documents, users, departments, workflows..."
+                className="w-full rounded-xl border border-gray-200 py-4 pl-14 pr-4 text-base shadow-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
               />
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-1">
+            <div className="mx-auto mt-4 flex max-w-4xl flex-wrap gap-4 border-b border-gray-100">
               {RESULT_TABS.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  className={`flex items-center gap-2 border-b-2 pb-3 text-sm transition-colors ${
                     activeTab === tab.id
-                      ? 'bg-hoterra-navy text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'border-hoterra-gold font-medium text-hoterra-navy'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
                   {tab.label}
                   {query.trim() && tabCounts[tab.id] !== undefined && (
-                    <span className="ml-1 opacity-70">({tabCounts[tab.id]})</span>
+                    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                      {tabCounts[tab.id]}
+                    </span>
                   )}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-6 py-3">
+          <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
             <p className="text-sm text-gray-600">
               {loading
                 ? 'Searching...'
@@ -192,7 +212,7 @@ export function SearchPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
             {!query.trim() ? (
               <div className="flex h-48 items-center justify-center text-sm text-gray-400">
                 Type a query to search across the system
@@ -296,7 +316,7 @@ export function SearchPage() {
           </div>
         </div>
 
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-5">
+        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold text-hoterra-navy">Filter Results</h3>
             <button
@@ -403,10 +423,7 @@ export function SearchPage() {
               Include archived items
             </label>
 
-            <button
-              onClick={handleApplyFilters}
-              className="w-full rounded-lg bg-hoterra-navy py-2.5 text-sm font-medium text-white hover:bg-hoterra-steel"
-            >
+            <button onClick={handleApplyFilters} className="btn-primary w-full py-2.5">
               Apply Filters
             </button>
           </div>

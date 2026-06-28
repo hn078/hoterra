@@ -7,21 +7,35 @@ const router = Router();
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   const q = String(req.query.q || '').trim();
   const type = String(req.query.type || 'all');
+  const departmentId = req.query.departmentId ? String(req.query.departmentId) : undefined;
+  const category = req.query.category ? String(req.query.category) : undefined;
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const fileType = req.query.fileType ? String(req.query.fileType) : undefined;
 
   if (!q) {
     return res.json({ documents: [], users: [], departments: [], templates: [], workflows: [], total: 0 });
   }
 
+  const docWhere = {
+    AND: [
+      {
+        OR: [
+          { title: { contains: q } },
+          { code: { contains: q } },
+          { description: { contains: q } },
+        ],
+      },
+      ...(departmentId ? [{ departmentId }] : []),
+      ...(category ? [{ category: category as never }] : []),
+      ...(status ? [{ status: status as never }] : []),
+      ...(fileType ? [{ fileType: { contains: fileType } }] : []),
+    ],
+  };
+
   const [documents, users, departments, templates, workflows] = await Promise.all([
     type === 'all' || type === 'documents'
       ? prisma.document.findMany({
-          where: {
-            OR: [
-              { title: { contains: q } },
-              { code: { contains: q } },
-              { description: { contains: q } },
-            ],
-          },
+          where: docWhere,
           include: { department: true, author: { select: { firstName: true, lastName: true } } },
           take: 20,
         })
@@ -53,6 +67,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
           where: {
             OR: [{ name: { contains: q } }, { description: { contains: q } }],
           },
+          include: { department: true },
           take: 10,
         })
       : [],

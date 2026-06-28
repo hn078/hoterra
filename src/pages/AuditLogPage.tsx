@@ -11,7 +11,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
-import { StatCard } from '@/components/ui/StatCard';
+import { DashStatCard } from '@/components/ui/DashStatCard';
 import { Pagination } from '@/components/ui/Pagination';
 import { api } from '@/lib/api';
 import type { AuditLog } from '@/types';
@@ -34,20 +34,31 @@ export function AuditLogPage() {
   const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [moduleFilter, setModuleFilter] = useState('ALL');
   const [severityFilter, setSeverityFilter] = useState('ALL');
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     setLoading(true);
     api
-      .getAuditLogs(page, limit)
+      .getAuditLogs({
+        page,
+        limit,
+        search: debouncedSearch || undefined,
+      })
       .then((res) => {
         setLogs(res.data);
         setTotal(res.pagination.total);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [page, limit]);
+  }, [page, limit, debouncedSearch]);
 
   const enriched = useMemo(
     () =>
@@ -62,20 +73,13 @@ export function AuditLogPage() {
   );
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
     return enriched.filter((log) => {
       const matchesModule = moduleFilter === 'ALL' || log.mapped.module === moduleFilter;
       const matchesSeverity =
         severityFilter === 'ALL' || log.mapped.severity === severityFilter;
-      const matchesSearch =
-        !q ||
-        (log.userName?.toLowerCase().includes(q) ?? false) ||
-        log.mapped.label.toLowerCase().includes(q) ||
-        (log.details?.toLowerCase().includes(q) ?? false) ||
-        (log.ipAddress?.includes(q) ?? false);
-      return matchesModule && matchesSeverity && matchesSearch;
+      return matchesModule && matchesSeverity;
     });
-  }, [enriched, search, moduleFilter, severityFilter]);
+  }, [enriched, moduleFilter, severityFilter]);
 
   const stats = useMemo(() => {
     const high = enriched.filter((l) => l.mapped.severity === 'High').length;
@@ -90,24 +94,37 @@ export function AuditLogPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await api.exportAuditLogs();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Audit Log"
         subtitle="Track all system activity, security events and document actions"
         action={
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-50">
+          <button onClick={handleExport} disabled={exporting} className="btn-secondary disabled:opacity-50">
             <Download className="h-4 w-4" />
-            Export Log
+            {exporting ? 'Exporting...' : 'Export Log'}
           </button>
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 border-b border-gray-200 bg-gray-50 px-6 py-4 lg:grid-cols-4">
-        <StatCard label="Total Events" value={stats.total} icon={ScrollText} color="blue" />
-        <StatCard label="Today's Activity" value={stats.today} icon={Activity} color="green" />
-        <StatCard label="High Severity" value={stats.high} icon={AlertTriangle} color="red" />
-        <StatCard label="Active Users" value={stats.uniqueUsers} icon={Users} color="purple" />
+      <div className="page-stats">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <DashStatCard label="Total Events" value={stats.total} icon={ScrollText} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <DashStatCard label="Today's Activity" value={stats.today} icon={Activity} iconColor="text-green-600" iconBg="bg-green-50" />
+          <DashStatCard label="High Severity" value={stats.high} icon={AlertTriangle} iconColor="text-red-600" iconBg="bg-red-50" />
+          <DashStatCard label="Active Users" value={stats.uniqueUsers} icon={Users} iconColor="text-purple-600" iconBg="bg-purple-50" />
+        </div>
       </div>
 
       <div className="border-b border-gray-200 bg-white px-6 py-3">
@@ -118,45 +135,38 @@ export function AuditLogPage() {
               type="search"
               placeholder="Search user, action, details or IP..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded-lg border border-gray-200 py-2.5 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
             />
           </div>
-          <select
-            value={moduleFilter}
-            onChange={(e) => setModuleFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
+          <select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} className="filter-select">
             {MODULES.map((m) => (
-              <option key={m} value={m}>
-                {m === 'ALL' ? 'All Modules' : m}
-              </option>
+              <option key={m} value={m}>{m === 'ALL' ? 'All Modules' : m}</option>
             ))}
           </select>
-          <select
-            value={severityFilter}
-            onChange={(e) => setSeverityFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
+          <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)} className="filter-select">
             <option value="ALL">All Severity</option>
             <option value="Low">Low</option>
             <option value="Medium">Medium</option>
             <option value="High">High</option>
           </select>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+          <button className="btn-secondary py-2.5">
             <Calendar className="h-4 w-4" />
             Date Range
           </button>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50">
+          <button className="btn-secondary py-2.5">
             <Filter className="h-4 w-4" />
             More Filters
           </button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto bg-white">
         <table className="w-full min-w-[1200px] text-sm">
-          <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
+          <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-6 py-3">Time</th>
               <th className="px-4 py-3">User</th>
@@ -171,22 +181,16 @@ export function AuditLogPage() {
           <tbody className="divide-y divide-gray-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                  Loading audit log...
-                </td>
+                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">Loading audit log...</td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                  No audit events found
-                </td>
+                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">No audit events found</td>
               </tr>
             ) : (
               filtered.map((log) => (
-                <tr key={log.id} className="hover:bg-gray-50">
-                  <td className="whitespace-nowrap px-6 py-3 text-gray-600">
-                    {formatDateTime(log.createdAt)}
-                  </td>
+                <tr key={log.id} className="hover:bg-gray-50/80">
+                  <td className="whitespace-nowrap px-6 py-3 text-gray-600">{formatDateTime(log.createdAt)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-hoterra-steel text-[10px] font-semibold text-white">
@@ -196,12 +200,7 @@ export function AuditLogPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium',
-                        log.mapped.color
-                      )}
-                    >
+                    <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', log.mapped.color)}>
                       {log.mapped.label}
                     </span>
                   </td>
@@ -212,19 +211,10 @@ export function AuditLogPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500">{log.resource}</td>
-                  <td className="max-w-xs truncate px-4 py-3 text-gray-600" title={log.details ?? ''}>
-                    {log.details ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                    {log.ipAddress ?? '192.168.1.100'}
-                  </td>
+                  <td className="max-w-xs truncate px-4 py-3 text-gray-600" title={log.details ?? ''}>{log.details ?? '—'}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{log.ipAddress ?? '192.168.1.100'}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
-                        SEVERITY_STYLE[log.mapped.severity] || SEVERITY_STYLE.Low
-                      )}
-                    >
+                    <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-medium', SEVERITY_STYLE[log.mapped.severity] || SEVERITY_STYLE.Low)}>
                       {log.mapped.severity}
                     </span>
                   </td>

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard,
   FileText,
@@ -15,16 +16,22 @@ import {
   ChevronLeft,
   Search,
   Plus,
+  Calendar,
+  Mail,
+  ChevronDown,
+  LogOut,
+  User,
 } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore, useUIStore } from '@/store/auth';
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS, type DocumentStatus } from '@/types';
 import { cn, getInitials } from '@/lib/utils';
+import { api } from '@/lib/api';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/documents', icon: FileText, label: 'Documents' },
-  { to: '/approvals', icon: CheckSquare, label: 'My Approvals', badge: 12 },
+  { to: '/approvals', icon: CheckSquare, label: 'My Approvals', badgeKey: 'approvals' as const },
   { to: '/templates', icon: LayoutTemplate, label: 'Templates' },
   { to: '/departments', icon: Building2, label: 'Departments' },
   { to: '/workflows', icon: GitBranch, label: 'Workflows' },
@@ -32,13 +39,23 @@ const navItems = [
   { to: '/reports', icon: BarChart3, label: 'Reports' },
   { to: '/archive', icon: Archive, label: 'Archive' },
   { to: '/audit', icon: ScrollText, label: 'Audit Log' },
-  { to: '/notifications', icon: Bell, label: 'Notifications', badge: 8 },
+  { to: '/notifications', icon: Bell, label: 'Notifications', badgeKey: 'notifications' as const },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export function Sidebar() {
   const { user } = useAuthStore();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
+  const navigate = useNavigate();
+  const [badges, setBadges] = useState({ approvals: 0, notifications: 0 });
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      api.getApprovals('pending', 1).then((r) => r.counts.pending).catch(() => 0),
+      api.getUnreadCount().then((r) => r.count).catch(() => 0),
+    ]).then(([approvals, notifications]) => setBadges({ approvals, notifications }));
+  }, [user]);
 
   if (!user) return null;
 
@@ -56,7 +73,7 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <div>
             <div className="text-sm font-bold tracking-wide">HOTERRA</div>
-            <div className="text-[10px] text-white/60">Document Management</div>
+            <div className="text-[10px] leading-tight text-white/50">Document Management System</div>
           </div>
         )}
       </div>
@@ -84,7 +101,9 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {navItems.map(({ to, icon: Icon, label, badge }) => (
+        {navItems.map(({ to, icon: Icon, label, badgeKey }) => {
+          const badge = badgeKey ? badges[badgeKey] : undefined;
+          return (
           <NavLink
             key={to}
             to={to}
@@ -93,8 +112,8 @@ export function Sidebar() {
               cn(
                 'mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
                 isActive
-                  ? 'bg-hoterra-gold/20 text-hoterra-gold'
-                  : 'text-white/70 hover:bg-white/5 hover:text-white'
+                  ? 'nav-active shadow-sm'
+                  : 'text-white/75 hover:bg-white/5 hover:text-white'
               )
             }
           >
@@ -102,7 +121,7 @@ export function Sidebar() {
             {!sidebarCollapsed && (
               <>
                 <span className="flex-1 truncate">{label}</span>
-                {badge && (
+                {badge !== undefined && badge > 0 && (
                   <span className="rounded-full bg-hoterra-gold px-1.5 py-0.5 text-[10px] font-bold text-hoterra-navy">
                     {badge}
                   </span>
@@ -110,11 +129,23 @@ export function Sidebar() {
               </>
             )}
           </NavLink>
-        ))}
+        );})}
+        {!sidebarCollapsed && (
+          <button
+            onClick={() => navigate('/search')}
+            className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
+          >
+            <Search className="h-5 w-5 shrink-0" />
+            <span>Search</span>
+          </button>
+        )}
       </nav>
 
       <div className="border-t border-white/10 p-3">
-        <button className="mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white">
+        <button
+          onClick={() => window.open('mailto:support@hoterra.az?subject=HOTERRA%20HDMS%20Support', '_blank')}
+          className="mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+        >
           <HelpCircle className="h-5 w-5 shrink-0" />
           {!sidebarCollapsed && <span>Help & Support</span>}
         </button>
@@ -128,7 +159,12 @@ export function Sidebar() {
           {!sidebarCollapsed && <span>Collapse</span>}
         </button>
         {!sidebarCollapsed && (
-          <div className="mt-2 px-3 text-[10px] text-white/40">v1.0.0</div>
+          <div className="mt-3 flex items-center gap-2 px-3">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-hoterra-gold text-[10px] font-bold text-hoterra-navy">
+              H
+            </div>
+            <span className="text-[10px] text-white/40">HOTERRA v1.0.3</span>
+          </div>
         )}
       </div>
     </aside>
@@ -143,39 +179,133 @@ interface HeaderProps {
 }
 
 export function Header({ title, subtitle, showSearch, action }: HeaderProps) {
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notifCount, setNotifCount] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    api.getUnreadCount().then((r) => setNotifCount(r.count)).catch(() => {});
+  }, [user]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleLogout = async () => {
+    setMenuOpen(false);
+    await logout();
+    navigate('/login');
+  };
+
+  const handleSearch = () => {
+    const q = searchQuery.trim();
+    if (q) {
+      navigate(`/search?q=${encodeURIComponent(q)}`);
+    } else {
+      navigate('/search');
+    }
+  };
 
   return (
-    <header className="border-b border-gray-200 bg-white px-6 py-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
+    <header className="border-b border-gray-200 bg-white">
+      <div className="flex items-center justify-between gap-4 px-6 py-4">
+        <div className="min-w-[200px] shrink-0">
           <h1 className="text-xl font-bold text-hoterra-navy">{title}</h1>
           {subtitle && <p className="mt-0.5 text-sm text-gray-500">{subtitle}</p>}
         </div>
 
-        <div className="flex flex-1 items-center justify-end gap-4">
+        {showSearch && (
+          <div className="relative mx-4 hidden max-w-xl flex-1 md:block">
+            <button
+              type="button"
+              onClick={handleSearch}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Search documents, departments, users..."
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
+            />
+          </div>
+        )}
+
+        <div className="flex shrink-0 items-center gap-2">
           {showSearch && (
-            <div className="relative max-w-md flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="search"
-                placeholder="Search documents, departments, users..."
-                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
-              />
-            </div>
+            <>
+              <button type="button" className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:block">
+                <Calendar className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/notifications')}
+                className="relative hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:block"
+              >
+                <Bell className="h-5 w-5" />
+                {notifCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-hoterra-gold px-1 text-[10px] font-bold text-hoterra-navy">
+                    {notifCount > 9 ? '9+' : notifCount}
+                  </span>
+                )}
+              </button>
+              <button type="button" className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:block">
+                <Mail className="h-5 w-5" />
+              </button>
+            </>
           )}
           {action}
           {user && (
-            <div className="hidden items-center gap--2 md:flex">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-hoterra-steel text-xs font-semibold text-white">
-                {getInitials(user.firstName, user.lastName)}
-              </div>
-              <div className="text-right">
-                <div className="text-sm font-medium text-hoterra-navy">
-                  {user.firstName} {user.lastName}
+            <div ref={menuRef} className="relative ml-2 hidden md:block">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((o) => !o)}
+                className="flex items-center gap-2 border-l border-gray-200 pl-4"
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-hoterra-steel text-xs font-semibold text-white">
+                  {getInitials(user.firstName, user.lastName)}
                 </div>
-                <div className="text-xs text-gray-500">{ROLE_LABELS[user.role]}</div>
-              </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-hoterra-navy">
+                    {user.firstName} {user.lastName}
+                  </div>
+                  <div className="text-xs text-gray-500">{ROLE_LABELS[user.role]}</div>
+                </div>
+                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); navigate(`/users/${user.id}`); }}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <User className="h-4 w-4" />
+                    My Profile
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -188,7 +318,7 @@ export function CreateDocumentButton() {
   return (
     <NavLink
       to="/documents/create"
-      className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-hoterra-steel"
+      className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-hoterra-steel"
     >
       <Plus className="h-4 w-4" />
       Create Document
@@ -209,17 +339,13 @@ export function StatusBadge({ status }: { status: DocumentStatus }) {
   );
 }
 
-export function DepartmentBadge({
-  name,
-  color,
-}: {
-  name: string;
-  color?: string;
-}) {
+export function DepartmentBadge({ name, color }: { name: string; color?: string }) {
+  const bg = color ? `${color}22` : '#29466022';
+  const text = color || '#294660';
   return (
     <span
-      className="inline-flex rounded-md px-2 py-0.5 text-xs font-medium text-white"
-      style={{ backgroundColor: color || '#294660' }}
+      className="badge-pill font-medium"
+      style={{ backgroundColor: bg, color: text }}
     >
       {name}
     </span>

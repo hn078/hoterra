@@ -14,7 +14,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
-import { StatCard } from '@/components/ui/StatCard';
+import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { api } from '@/lib/api';
 import type { Notification } from '@/types';
@@ -70,6 +70,14 @@ export function NotificationsPage() {
 
   useEffect(() => {
     load();
+    api.getSettings().then((s) => {
+      setChannels({
+        email: s.notifyEmail ?? true,
+        push: s.notifyPush ?? true,
+        inApp: s.notifyInApp ?? true,
+        sms: false,
+      });
+    }).catch(console.error);
   }, []);
 
   const filtered = useMemo(() => {
@@ -111,12 +119,37 @@ export function NotificationsPage() {
     }
   };
 
-  const toggleChannel = (key: keyof typeof channels) => {
-    setChannels((prev) => ({ ...prev, [key]: !prev[key] }));
+  const handleNotificationClick = async (n: Notification) => {
+    if (!n.isRead) {
+      try {
+        await api.markNotificationRead(n.id);
+        setNotifications((prev) =>
+          prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+        );
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const toggleChannel = async (key: keyof typeof channels) => {
+    const next = { ...channels, [key]: !channels[key] };
+    setChannels(next);
+    if (key === 'sms') return;
+    try {
+      await api.updateSettings({
+        notifyEmail: next.email,
+        notifyPush: next.push,
+        notifyInApp: next.inApp,
+      });
+    } catch (err) {
+      console.error(err);
+      setChannels(channels);
+    }
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Notifications"
         subtitle="Stay updated on document activity, approvals and system alerts"
@@ -124,7 +157,7 @@ export function NotificationsPage() {
           <button
             onClick={handleMarkAllRead}
             disabled={markingRead || stats.unread === 0}
-            className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2 text-sm font-medium text-white hover:bg-hoterra-steel disabled:opacity-50"
+            className="btn-primary disabled:opacity-50"
           >
             <CheckCheck className="h-4 w-4" />
             {markingRead ? 'Marking...' : 'Mark All Read'}
@@ -132,14 +165,16 @@ export function NotificationsPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 border-b border-gray-200 bg-gray-50 px-6 py-4 lg:grid-cols-4">
-        <StatCard label="Total Notifications" value={stats.total} icon={Bell} color="blue" />
-        <StatCard label="Unread" value={stats.unread} icon={BellOff} color="orange" />
-        <StatCard label="Today" value={stats.today} icon={MessageSquare} color="green" />
-        <StatCard label="Security Alerts" value={stats.urgent} icon={AlertTriangle} color="red" />
+      <div className="page-stats">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <DashStatCard label="Total Notifications" value={stats.total} icon={Bell} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <DashStatCard label="Unread" value={stats.unread} icon={BellOff} iconColor="text-orange-600" iconBg="bg-orange-50" />
+          <DashStatCard label="Today" value={stats.today} icon={MessageSquare} iconColor="text-green-600" iconBg="bg-green-50" />
+          <DashStatCard label="Security Alerts" value={stats.urgent} icon={AlertTriangle} iconColor="text-red-600" iconBg="bg-red-50" />
+        </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
         <div className="flex flex-1 flex-col overflow-hidden">
           <PageTabs
             tabs={tabs}
@@ -147,7 +182,7 @@ export function NotificationsPage() {
             onChange={setActiveTab}
           />
 
-          <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
+          <div className="flex-1 overflow-y-auto bg-hoterra-page p-4">
             {loading ? (
               <div className="flex items-center justify-center py-16 text-gray-500">
                 Loading notifications...
@@ -165,8 +200,9 @@ export function NotificationsPage() {
                   return (
                     <div
                       key={n.id}
+                      onClick={() => handleNotificationClick(n)}
                       className={cn(
-                        'flex gap-4 rounded-xl border bg-white p-4 transition-shadow hover:shadow-sm',
+                        'flex cursor-pointer gap-4 rounded-xl border bg-white p-4 transition-shadow hover:shadow-sm',
                         !n.isRead ? 'border-hoterra-gold/30 border-l-4 border-l-hoterra-gold' : 'border-gray-200'
                       )}
                     >
@@ -194,6 +230,7 @@ export function NotificationsPage() {
                         {n.link && (
                           <Link
                             to={n.link}
+                            onClick={(e) => e.stopPropagation()}
                             className="mt-2 inline-block text-xs font-medium text-hoterra-steel hover:underline"
                           >
                             View details →
@@ -211,8 +248,8 @@ export function NotificationsPage() {
           </div>
         </div>
 
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-5">
-          <h3 className="mb-4 text-sm font-semibold text-hoterra-navy">Preferences</h3>
+        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
+          <h3 className="mb-4 text-sm font-semibold text-hoterra-navy">Notification Preferences</h3>
 
           <div className="mb-6">
             <h4 className="mb-2 text-xs font-medium uppercase text-gray-400">Filters</h4>

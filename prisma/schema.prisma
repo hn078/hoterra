@@ -40,6 +40,12 @@ enum DocumentCategory {
   ARCHIVE
 }
 
+enum DocumentPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
 enum AuditAction {
   LOGIN
   LOGOUT
@@ -59,63 +65,84 @@ enum AuditAction {
 }
 
 model Department {
-  id        String     @id @default(uuid())
-  name      String     @unique
-  code      String     @unique
-  color     String     @default("#294660")
-  createdAt DateTime   @default(now())
-  users     User[]
-  documents Document[]
+  id          String     @id @default(uuid())
+  name        String     @unique
+  code        String     @unique
+  color       String     @default("#294660")
+  location    String     @default("Main Hotel")
+  description String?
+  createdAt   DateTime   @default(now())
+  users       User[]
+  documents   Document[]
+  templates   Template[]
 }
 
 model User {
-  id           String        @id @default(uuid())
-  email        String        @unique
+  id           String            @id @default(uuid())
+  email        String            @unique
   passwordHash String
   pinHash      String?
   firstName    String
   lastName     String
-  role         Role          @default(EMPLOYEE)
+  role         Role              @default(EMPLOYEE)
   departmentId String?
-  department   Department?   @relation(fields: [departmentId], references: [id])
-  isActive     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  documents    Document[]    @relation("DocumentAuthor")
-  ownedDocs    Document[]    @relation("DocumentOwner")
+  department   Department?       @relation(fields: [departmentId], references: [id])
+  isActive        Boolean           @default(true)
+  signatureImage  String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  documents    Document[]        @relation("DocumentAuthor")
+  ownedDocs    Document[]        @relation("DocumentOwner")
   auditLogs    AuditLog[]
   signatures   Signature[]
+  comments     DocumentComment[]
+  favorites    UserFavorite[]
 }
 
 model Document {
-  id              String           @id @default(uuid())
+  id              String              @id @default(uuid())
   title           String
-  code            String           @unique
-  version         String           @default("1.0")
+  code            String              @unique
+  version         String              @default("1.0")
   description     String?
-  status          DocumentStatus   @default(DRAFT)
+  content         String?
+  status          DocumentStatus      @default(DRAFT)
   category        DocumentCategory
-  language        String           @default("English")
-  tags            String           @default("[]")
+  priority        DocumentPriority    @default(MEDIUM)
+  language        String              @default("English")
+  tags            String              @default("[]")
   filePath        String?
   fileName        String?
   fileType        String?
+  fileSize        Int?
   nextReviewDate  DateTime?
   effectiveDate   DateTime?
+  archiveReason   String?
+  archivedAt      DateTime?
+  archivedBy      String?
+  allowDownload   Boolean             @default(true)
+  allowComments   Boolean             @default(true)
   departmentId    String
-  department      Department       @relation(fields: [departmentId], references: [id])
+  department      Department          @relation(fields: [departmentId], references: [id])
   authorId        String
-  author          User             @relation("DocumentAuthor", fields: [authorId], references: [id])
+  author          User                @relation("DocumentAuthor", fields: [authorId], references: [id])
   ownerId         String?
-  owner           User?            @relation("DocumentOwner", fields: [ownerId], references: [id])
+  owner           User?               @relation("DocumentOwner", fields: [ownerId], references: [id])
   templateId      String?
-  template        Template?        @relation(fields: [templateId], references: [id])
-  isLocked        Boolean          @default(false)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  history         DocumentHistory[]
+  template        Template?           @relation(fields: [templateId], references: [id])
+  workflowId      String?
+  workflow        WorkflowRoute?      @relation(fields: [workflowId], references: [id])
+  isLocked            Boolean             @default(false)
+  signaturePlacement  String              @default("[]")
+  pageCount           Int                 @default(1)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  history             DocumentHistory[]
   signatures      Signature[]
   versions        DocumentVersion[]
+  comments        DocumentComment[]
+  attachments     DocumentAttachment[]
+  favorites       UserFavorite[]
 }
 
 model DocumentVersion {
@@ -140,24 +167,54 @@ model DocumentHistory {
   createdAt  DateTime @default(now())
 }
 
+model DocumentComment {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  text       String
+  status     String   @default("open")
+  createdAt  DateTime @default(now())
+}
+
+model DocumentAttachment {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fileName   String
+  filePath   String
+  fileSize   Int?
+  fileType   String?
+  createdAt  DateTime @default(now())
+}
+
 model Template {
-  id          String           @id @default(uuid())
-  name        String
-  description String?
-  category    DocumentCategory
-  content     String?
-  isActive    Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  documents   Document[]
+  id           String           @id @default(uuid())
+  name         String
+  description  String?
+  category     DocumentCategory
+  content      String?
+  version      String           @default("1.0")
+  status       String           @default("Active")
+  departmentId String?
+  department   Department?      @relation(fields: [departmentId], references: [id])
+  isActive           Boolean          @default(true)
+  signaturePlacement String           @default("[]")
+  pageCount          Int              @default(1)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  documents          Document[]
 }
 
 model WorkflowRoute {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
   name        String
   description String?
   steps       String
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  isDefault   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  documents   Document[]
 }
 
 model Signature {
@@ -170,8 +227,11 @@ model Signature {
   position   String
   signedAt   DateTime @default(now())
   ipAddress  String?
-  device     String?
-  docHash    String?
+  device      String?
+  docHash     String?
+  imagePath   String?
+  placementId String?
+  page        Int?
 }
 
 model AuditLog {
@@ -219,4 +279,19 @@ model SystemSettings {
   defaultStartPage      String  @default("dashboard")
   defaultDocSort        String  @default("updated_desc")
   defaultDocStatus      String  @default("DRAFT")
+  notifyEmail           Boolean @default(true)
+  notifyPush            Boolean @default(true)
+  notifyInApp           Boolean @default(true)
+  extendedConfig        String  @default("{}")
+}
+
+model UserFavorite {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, documentId])
 }
