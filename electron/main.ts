@@ -1,12 +1,31 @@
-import { app, BrowserWindow, shell } from 'electron';
-import { fork, ChildProcess } from 'child_process';
+import { app, BrowserWindow, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
 
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
-let serverProcess: ChildProcess | null = null;
+
+function log(message: string) {
+  const line = `[${new Date().toISOString()}] ${message}`;
+  console.log(line);
+  try {
+    const logDir = app.getPath('userData');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(path.join(logDir, 'hoterra.log'), `${line}\n`);
+  } catch {
+    /* ignore logging errors */
+  }
+}
+
+function showFatalError(title: string, message: string) {
+  log(`FATAL: ${title} — ${message}`);
+  dialog.showErrorBox(title, `${message}\n\nLog: ${path.join(app.getPath('userData'), 'hoterra.log')}`);
+}
+
+function toFileUrl(filePath: string): string {
+  return `file:${filePath.replace(/\\/g, '/')}`;
+}
 
 function getResourcePath(...segments: string[]) {
   if (isDev) {
@@ -15,41 +34,73 @@ function getResourcePath(...segments: string[]) {
   return path.join(process.resourcesPath, ...segments);
 }
 
+function configurePrismaEngine() {
+  if (isDev) return;
+
+  const engineNames = [
+    'query_engine-windows.dll.node',
+    'query_engine-windows.lib.node',
+    'libquery_engine-darwin.dylib.node',
+    'libquery_engine-linux-musl.so.node',
+    'libquery_engine-linux-gnu.so.node',
+  ];
+
+  const searchPaths = [
+    path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '.prisma', 'client'),
+    path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@prisma', 'client'),
+    path.join(__dirname, '..', 'node_modules', '.prisma', 'client'),
+  ];
+
+  for (const base of searchPaths) {
+    for (const name of engineNames) {
+      const enginePath = path.join(base, name);
+      if (fs.existsSync(enginePath)) {
+        process.env.PRISMA_QUERY_ENGINE_LIBRARY = enginePath;
+        log(`Using Prisma engine: ${enginePath}`);
+        return;
+      }
+    }
+  }
+
+  log('Warning: Prisma query engine binary not found');
+}
+
 function prepareDatabase() {
   const userData = app.getPath('userData');
   const dbFile = path.join(userData, 'hoterra.db');
 
-  if (!fs.existsSync(userData)) {
-    fs.mkdirSync(userData, { recursive: true });
-  }
+  fs.mkdirSync(userData, { recursive: true });
 
   if (!fs.existsSync(dbFile)) {
     const templateDb = getResourcePath('database', 'hoterra-template.db');
+    log(`Template DB: ${templateDb} (exists: ${fs.existsSync(templateDb)})`);
     if (fs.existsSync(templateDb)) {
       fs.copyFileSync(templateDb, dbFile);
+      log('Copied template database');
     }
   }
 
-  process.env.DATABASE_URL = `file:${dbFile}`;
+  process.env.DATABASE_URL = toFileUrl(dbFile);
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'hoterra-hdms-production-secret';
   process.env.PORT = process.env.PORT || '3001';
+  log(`Database: ${process.env.DATABASE_URL}`);
 
   return dbFile;
 }
 
-async function waitForApi(port: number, attempts = 40): Promise<number> {
+async function waitForApi(port: number, attempts = 60): Promise<number> {
   for (let i = 0; i < attempts; i++) {
     try {
       await new Promise<void>((resolve, reject) => {
         const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
           res.resume();
           if (res.statusCode === 200) resolve();
-          else reject(new Error(`Health check failed: ${res.statusCode}`));
+          else reject(new Error(`Health check HTTP ${res.statusCode}`));
         });
         req.on('error', reject);
-        req.setTimeout(1000, () => {
+        req.setTimeout(1500, () => {
           req.destroy();
-          reject(new Error('Timeout'));
+          reject(new Error('Health check timeout'));
         });
       });
       return port;
@@ -57,7 +108,7 @@ async function waitForApi(port: number, attempts = 40): Promise<number> {
       await new Promise((r) => setTimeout(r, 500));
     }
   }
-  throw new Error('API server failed to start');
+  throw new Error(`API server did not respond on port ${port}`);
 }
 
 async function startBackend(): Promise<number> {
@@ -66,23 +117,17 @@ async function startBackend(): Promise<number> {
   }
 
   prepareDatabase();
+  configurePrismaEngine();
 
-  const serverEntry = path.join(__dirname, '../dist-server/index.js');
-  serverProcess = fork(serverEntry, [], {
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: '1',
-    },
-    stdio: 'inherit',
-  });
+  const serverPath = path.join(__dirname, '../dist-server/index.js');
+  log(`Loading server module: ${serverPath}`);
 
-  serverProcess.on('exit', (code) => {
-    if (code && code !== 0) {
-      console.error(`Server process exited with code ${code}`);
-    }
-  });
-
-  return waitForApi(Number(process.env.PORT) || 3001);
+  // DATABASE_URL must be set before Prisma client initializes
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const serverModule = require(serverPath);
+  const { port } = await serverModule.startServer(Number(process.env.PORT) || 3001);
+  log(`Server listening on ${port}`);
+  return port;
 }
 
 function createWindow() {
@@ -92,12 +137,12 @@ function createWindow() {
     minWidth: 1200,
     minHeight: 700,
     title: 'HOTERRA Document Management System',
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     },
-    show: false,
   });
 
   mainWindow.once('ready-to-show', () => {
@@ -111,21 +156,40 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  mainWindow.webContents.on('did-fail-load', (_event, code, description) => {
+    log(`Window failed to load: ${code} ${description}`);
+    showFatalError('HOTERRA HDMS', `Failed to load UI: ${description}`);
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 }
 
-app.whenReady().then(async () => {
-  try {
-    await startBackend();
-    createWindow();
-  } catch (err) {
-    console.error('Failed to start HOTERRA HDMS:', err);
-    app.quit();
-  }
-});
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
+    log(`Starting HOTERRA HDMS v${app.getVersion()} (packaged: ${app.isPackaged})`);
+    try {
+      await startBackend();
+      createWindow();
+    } catch (err) {
+      const message = err instanceof Error ? err.stack || err.message : String(err);
+      showFatalError('HOTERRA HDMS — ошибка запуска', message);
+      app.quit();
+    }
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -133,12 +197,13 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
-  serverProcess?.kill();
-});
-
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    startBackend().then(createWindow).catch(console.error);
+    startBackend()
+      .then(createWindow)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        showFatalError('HOTERRA HDMS — ошибка запуска', message);
+      });
   }
 });

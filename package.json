@@ -1,6 +1,6 @@
 {
   "name": "hoterra-hdms",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "HOTERRA Hotel Document Management System",
   "main": "dist-electron/main.js",
   "author": "HOTERRA",
@@ -76,7 +76,7 @@
     ],
     "asarUnpack": [
       "**/node_modules/.prisma/**",
-      "**/node_modules/@prisma/client/**"
+      "**/node_modules/@prisma/**"
     ],
     "win": {
       "target": ["nsis"],

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -10,6 +10,12 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { PlaceholderPage } from '@/pages/PlaceholderPage';
 import { useAuthStore } from '@/store/auth';
 
+const isFileProtocol =
+  typeof window !== 'undefined' &&
+  (window.location.protocol === 'file:' || !!window.hoterra);
+
+const Router = isFileProtocol ? HashRouter : BrowserRouter;
+
 export default function App() {
   const checkAuth = useAuthStore((s) => s.checkAuth);
 
@@ -18,7 +24,7 @@ export default function App() {
   }, [checkAuth]);
 
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<AppLayout />}>
@@ -39,6 +45,6 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
