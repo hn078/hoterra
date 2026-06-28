@@ -38,7 +38,9 @@ jobs:
       - name: Verify Prisma client bundle
         run: |
           if (!(Test-Path "node_modules/.prisma/client/default.js")) { throw "Prisma client not generated" }
+          if (!(Test-Path "node_modules/@prisma/client/runtime/library.js")) { throw "Prisma runtime missing" }
           Get-ChildItem "node_modules/.prisma/client" | Select-Object Name
+          Get-ChildItem "node_modules/@prisma/client/runtime" | Select-Object Name
 
       - name: Build application
         run: npm run build:app

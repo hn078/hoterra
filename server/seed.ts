@@ -248,6 +248,36 @@ async function main() {
     }
   }
 
+  const fuad = userByEmail['fuad.ahmadov@hoterra.az'];
+  const notificationSamples = [
+    { title: 'Document approved', message: 'Q2 Financial Report has been approved by Finance Director', type: 'document', link: '/documents' },
+    { title: 'Approval required', message: 'Guest Check-in Procedure requires your review', type: 'workflow', link: '/approvals' },
+    { title: 'Document updated', message: 'Housekeeping Cleaning Checklist was updated', type: 'document', link: '/documents' },
+    { title: 'New user added', message: 'A new user was added to Front Office department', type: 'system', link: '/users' },
+    { title: 'Review due soon', message: 'Credit Card Handling Procedure review due in 7 days', type: 'document', link: '/documents' },
+    { title: 'Workflow completed', message: 'Vendor Agreement workflow completed successfully', type: 'workflow', link: '/workflows' },
+    { title: 'Security alert', message: 'New login from Windows Desktop', type: 'security', link: '/audit' },
+    { title: 'Template published', message: 'SOP Standard Template v2.1 published', type: 'template', link: '/templates' },
+  ];
+
+  for (const [i, n] of notificationSamples.entries()) {
+    const exists = await prisma.notification.findFirst({
+      where: { userId: fuad.id, title: n.title },
+    });
+    if (!exists) {
+      await prisma.notification.create({
+        data: {
+          userId: fuad.id,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+          link: n.link,
+          isRead: i >= 3,
+        },
+      });
+    }
+  }
+
   for (const log of [
     {
       userName: 'Fuad Ahmadov',

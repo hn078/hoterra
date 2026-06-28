@@ -16,6 +16,17 @@ export function getInitials(firstName: string, lastName: string): string {
   return `${firstName[0]}${lastName[0]}`.toUpperCase();
 }
 
+export function formatDateTime(date: string | Date | null | undefined): string {
+  if (!date) return '—';
+  const d = new Date(date);
+  return d.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 export function timeAgo(date: string): string {
   const now = new Date();
   const then = new Date(date);

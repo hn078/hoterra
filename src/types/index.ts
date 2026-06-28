@@ -89,6 +89,41 @@ export interface Template {
   name: string;
   description?: string | null;
   category: DocumentCategory;
+  content?: string | null;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  link?: string | null;
+  createdAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  userId?: string | null;
+  userName?: string | null;
+  action: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  details?: string | null;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+
+export interface WorkflowItem {
+  id: string;
+  name: string;
+  description?: string | null;
+  steps: string[];
+  isDefault: boolean;
+  createdAt?: string;
 }
 
 export interface DashboardStats {

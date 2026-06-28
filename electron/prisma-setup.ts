@@ -10,17 +10,32 @@ const ENGINE_NAMES = [
   'libquery_engine-linux-gnu.so.node',
 ];
 
-export function getPrismaClientDir(isDev: boolean, resourcesPath: string, appRoot: string): string {
-  const candidates = isDev
-    ? [path.join(appRoot, 'node_modules', '.prisma', 'client')]
-    : [
-        path.join(resourcesPath, 'prisma', 'client'),
-        path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '.prisma', 'client'),
-        path.join(appRoot, 'node_modules', '.prisma', 'client'),
-      ];
+type NodeModuleWithInternals = typeof Module & {
+  _initPaths: () => void;
+  _resolveFilename: (
+    request: string,
+    parent: NodeModule | null | undefined,
+    isMain: boolean,
+    options?: unknown
+  ) => string;
+};
+
+function resolveExisting(basePath: string, ...parts: string[]): string | null {
+  const candidate = path.join(basePath, ...parts);
+  if (fs.existsSync(candidate)) return candidate;
+  if (fs.existsSync(`${candidate}.js`)) return `${candidate}.js`;
+  if (fs.existsSync(path.join(candidate, 'index.js'))) return path.join(candidate, 'index.js');
+  return null;
+}
+
+export function getUnpackedNodeModules(resourcesPath: string, appRoot: string): string {
+  const candidates = [
+    path.join(resourcesPath, 'app.asar.unpacked', 'node_modules'),
+    path.join(appRoot, 'node_modules'),
+  ];
 
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, 'default.js'))) {
+    if (fs.existsSync(path.join(dir, '.prisma', 'client', 'default.js'))) {
       return dir;
     }
   }
@@ -29,28 +44,29 @@ export function getPrismaClientDir(isDev: boolean, resourcesPath: string, appRoo
 }
 
 export function patchPrismaModuleResolution(
-  prismaClientDir: string,
+  isDev: boolean,
+  resourcesPath: string,
+  appRoot: string,
   log: (message: string) => void
 ) {
+  if (isDev) return;
+
+  const nodeModulesDir = getUnpackedNodeModules(resourcesPath, appRoot);
+  const prismaClientDir = path.join(nodeModulesDir, '.prisma', 'client');
+  const prismaPackageDir = path.join(nodeModulesDir, '@prisma', 'client');
   const defaultPath = path.join(prismaClientDir, 'default.js');
-  const indexPath = path.join(prismaClientDir, 'index.js');
 
   if (!fs.existsSync(defaultPath)) {
-    log(`Prisma client default.js missing at ${defaultPath}`);
-    return;
+    throw new Error(`Prisma client missing at ${defaultPath}`);
   }
 
-  const nodeModulesDir = path.dirname(path.dirname(prismaClientDir));
+  const runtimeLibrary = resolveExisting(prismaPackageDir, 'runtime', 'library.js');
+  if (!runtimeLibrary) {
+    throw new Error(`Prisma runtime missing at ${path.join(prismaPackageDir, 'runtime', 'library.js')}`);
+  }
+
+  const nodeModule = Module as NodeModuleWithInternals;
   const nodePathParts = (process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean);
-  const nodeModule = Module as typeof Module & {
-    _initPaths: () => void;
-    _resolveFilename: (
-      request: string,
-      parent: NodeModule | null | undefined,
-      isMain: boolean,
-      options?: unknown
-    ) => string;
-  };
 
   if (!nodePathParts.includes(nodeModulesDir)) {
     process.env.NODE_PATH = [nodeModulesDir, ...nodePathParts].join(path.delimiter);
@@ -59,12 +75,29 @@ export function patchPrismaModuleResolution(
 
   const originalResolve = nodeModule._resolveFilename.bind(nodeModule);
   nodeModule._resolveFilename = (request, parent, isMain, options) => {
-    if (request === '.prisma/client/default' && fs.existsSync(defaultPath)) {
+    if (request === '.prisma/client/default') {
       return defaultPath;
     }
-    if (request === '.prisma/client' && fs.existsSync(indexPath)) {
-      return indexPath;
+
+    if (request === '.prisma/client') {
+      return path.join(prismaClientDir, 'index.js');
     }
+
+    if (request === '@prisma/client/runtime/library.js' || request === '@prisma/client/runtime/library') {
+      return runtimeLibrary;
+    }
+
+    if (request.startsWith('@prisma/client/')) {
+      const subpath = request.slice('@prisma/client/'.length);
+      const resolved = resolveExisting(prismaPackageDir, ...subpath.split('/'));
+      if (resolved) return resolved;
+    }
+
+    if (request === '@prisma/client') {
+      const resolved = resolveExisting(prismaPackageDir, 'default.js');
+      if (resolved) return resolved;
+    }
+
     return originalResolve(request, parent, isMain, options);
   };
 
@@ -77,5 +110,6 @@ export function patchPrismaModuleResolution(
     }
   }
 
-  log(`Prisma client: ${prismaClientDir}`);
+  log(`Prisma node_modules: ${nodeModulesDir}`);
+  log(`Prisma runtime: ${runtimeLibrary}`);
 }

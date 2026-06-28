@@ -9,6 +9,8 @@ import settingsRoutes from './routes/settings';
 import auditRoutes from './routes/audit';
 import notificationRoutes from './routes/notifications';
 import userRoutes from './routes/users';
+import workflowRoutes from './routes/workflows';
+import searchRoutes from './routes/search';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -35,6 +37,8 @@ export function createApp() {
   app.use('/api/audit', auditRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/users', userRoutes);
+  app.use('/api/workflows', workflowRoutes);
+  app.use('/api/search', searchRoutes);
 
   return app;
 }

@@ -112,10 +112,69 @@ class ApiClient {
     return this.request<import('@/types').User[]>('/users');
   }
 
-  getAuditLogs(page = 1) {
-    return this.request<{ data: unknown[]; pagination: { total: number } }>(
-      `/audit?page=${page}`
+  getAuditLogs(page = 1, limit = 20) {
+    return this.request<{ data: import('@/types').AuditLog[]; pagination: { page: number; limit: number; total: number } }>(
+      `/audit?page=${page}&limit=${limit}`
     );
+  }
+
+  getApprovals(tab = 'pending', page = 1) {
+    return this.request<{
+      data: import('@/types').Document[];
+      counts: { pending: number; approved: number; rejected: number; returned: number; completed: number };
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+    }>(`/documents/approvals?tab=${tab}&page=${page}`);
+  }
+
+  getWorkflows() {
+    return this.request<import('@/types').WorkflowItem[]>('/workflows');
+  }
+
+  getWorkflow(id: string) {
+    return this.request<import('@/types').WorkflowItem>(`/workflows/${id}`);
+  }
+
+  search(q: string, type = 'all') {
+    return this.request<{
+      documents: import('@/types').Document[];
+      users: import('@/types').User[];
+      departments: import('@/types').Department[];
+      templates: import('@/types').Template[];
+      workflows: import('@/types').WorkflowItem[];
+      total: number;
+    }>(`/search?q=${encodeURIComponent(q)}&type=${type}`);
+  }
+
+  getDepartment(id: string) {
+    return this.request<import('@/types').Department & {
+      users: import('@/types').User[];
+      documents: import('@/types').Document[];
+    }>(`/departments/${id}`);
+  }
+
+  getUser(id: string) {
+    return this.request<import('@/types').User & {
+      createdAt: string;
+      counts: { documents: number; signatures: number; auditLogs: number };
+      recentActivity: import('@/types').AuditLog[];
+      recentDocs: import('@/types').Document[];
+    }>(`/users/${id}`);
+  }
+
+  getTemplate(id: string) {
+    return this.request<import('@/types').Template>(`/templates/${id}`);
+  }
+
+  getNotifications() {
+    return this.request<import('@/types').Notification[]>('/notifications');
+  }
+
+  getUnreadCount() {
+    return this.request<{ count: number }>('/notifications/unread-count');
+  }
+
+  markAllNotificationsRead() {
+    return this.request('/notifications/mark-all-read', { method: 'POST' });
   }
 }
 

@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
-import { getPrismaClientDir, patchPrismaModuleResolution } from './prisma-setup';
+import { patchPrismaModuleResolution } from './prisma-setup';
 
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -36,9 +36,7 @@ function getResourcePath(...segments: string[]) {
 }
 
 function setupPrisma() {
-  const appRoot = path.join(__dirname, '..');
-  const prismaClientDir = getPrismaClientDir(isDev, process.resourcesPath, appRoot);
-  patchPrismaModuleResolution(prismaClientDir, log);
+  patchPrismaModuleResolution(isDev, process.resourcesPath, path.join(__dirname, '..'), log);
 }
 
 function prepareDatabase() {

@@ -20,4 +20,20 @@ router.get('/unread-count', authMiddleware, async (req: Request, res: Response) 
   res.json({ count });
 });
 
+router.patch('/:id/read', authMiddleware, async (req: Request, res: Response) => {
+  await prisma.notification.updateMany({
+    where: { id: String(req.params.id), userId: req.user!.id },
+    data: { isRead: true },
+  });
+  res.json({ ok: true });
+});
+
+router.post('/mark-all-read', authMiddleware, async (req: Request, res: Response) => {
+  await prisma.notification.updateMany({
+    where: { userId: req.user!.id, isRead: false },
+    data: { isRead: true },
+  });
+  res.json({ ok: true });
+});
+
 export default router;

@@ -8,6 +8,10 @@ import { CreateDocumentPage } from '@/pages/CreateDocumentPage';
 import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { PlaceholderPage } from '@/pages/PlaceholderPage';
+import { MyApprovalsPage } from '@/pages/MyApprovalsPage';
+import { ApprovalReviewPage } from '@/pages/ApprovalReviewPage';
+import { ReportsPage } from '@/pages/ReportsPage';
+import { SearchPage } from '@/pages/SearchPage';
 import { useAuthStore } from '@/store/auth';
 
 const isFileProtocol =
@@ -32,12 +36,14 @@ export default function App() {
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/documents/create" element={<CreateDocumentPage />} />
           <Route path="/documents/:id" element={<DocumentDetailPage />} />
-          <Route path="/approvals" element={<PlaceholderPage title="My Approvals" subtitle="Documents awaiting your signature" />} />
+          <Route path="/approvals" element={<MyApprovalsPage />} />
+          <Route path="/approvals/:id/review" element={<ApprovalReviewPage />} />
+          <Route path="/search" element={<SearchPage />} />
           <Route path="/templates" element={<PlaceholderPage title="Templates" subtitle="Manage document templates" />} />
           <Route path="/departments" element={<PlaceholderPage title="Departments" subtitle="Manage hotel departments" />} />
           <Route path="/workflows" element={<PlaceholderPage title="Workflows" subtitle="Configure approval routes" />} />
           <Route path="/users" element={<PlaceholderPage title="Users & Roles" subtitle="Manage users and permissions" />} />
-          <Route path="/reports" element={<PlaceholderPage title="Reports" subtitle="Analytics and reporting" />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/archive" element={<PlaceholderPage title="Archive" subtitle="Archived documents" />} />
           <Route path="/audit" element={<PlaceholderPage title="Audit Log" subtitle="System activity log" />} />
           <Route path="/notifications" element={<PlaceholderPage title="Notifications" subtitle="Your notifications" />} />

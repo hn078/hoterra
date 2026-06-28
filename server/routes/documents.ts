@@ -76,6 +76,79 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
   });
 });
 
+router.get('/approvals', authMiddleware, async (req: Request, res: Response) => {
+  const { tab = 'pending', page = '1', limit = '20' } = req.query;
+  const pageNum = Math.max(1, parseInt(String(page), 10));
+  const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10)));
+
+  const pendingStatuses: DocumentStatus[] = [
+    DocumentStatus.IN_REVIEW,
+    DocumentStatus.SIGNED_HOD,
+    DocumentStatus.SIGNED_FINANCE,
+    DocumentStatus.SIGNED_GM,
+  ];
+
+  let statusFilter: DocumentStatus[] | DocumentStatus | undefined;
+  if (tab === 'pending') statusFilter = pendingStatuses;
+  else if (tab === 'approved') statusFilter = DocumentStatus.PUBLISHED;
+  else if (tab === 'rejected') statusFilter = DocumentStatus.REJECTED;
+  else if (tab === 'returned') statusFilter = DocumentStatus.NEEDS_REVIEW;
+  else if (tab === 'completed') statusFilter = [DocumentStatus.PUBLISHED, DocumentStatus.ARCHIVED];
+
+  const where: Prisma.DocumentWhereInput = {
+    ...(Array.isArray(statusFilter)
+      ? { status: { in: statusFilter } }
+      : statusFilter
+        ? { status: statusFilter }
+        : {}),
+  };
+
+  if (!canViewAllDocuments(req.user!.role)) {
+    where.departmentId = req.user!.departmentId ?? undefined;
+  }
+
+  const [documents, total] = await Promise.all([
+    prisma.document.findMany({
+      where,
+      include: {
+        department: true,
+        author: { select: { id: true, firstName: true, lastName: true, role: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
+    prisma.document.count({ where }),
+  ]);
+
+  const counts = await Promise.all([
+    prisma.document.count({ where: { status: { in: pendingStatuses } } }),
+    prisma.document.count({ where: { status: DocumentStatus.PUBLISHED } }),
+    prisma.document.count({ where: { status: DocumentStatus.REJECTED } }),
+    prisma.document.count({ where: { status: DocumentStatus.NEEDS_REVIEW } }),
+    prisma.document.count({
+      where: { status: { in: [DocumentStatus.PUBLISHED, DocumentStatus.ARCHIVED] } },
+    }),
+  ]);
+
+  res.json({
+    data: documents.map((d) => ({ ...d, tags: parseTags(d.tags) })),
+    counts: {
+      pending: counts[0],
+      approved: counts[1],
+      rejected: counts[2],
+      returned: counts[3],
+      completed: counts[4],
+    },
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+    },
+  });
+});
+
 router.get('/stats', authMiddleware, async (req: Request, res: Response) => {
   const deptFilter = canViewAllDocuments(req.user!.role)
     ? {}
