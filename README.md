@@ -62,15 +62,17 @@ npm run build:win
 
 Установщик `.exe` появится в папке `release/`.
 
-### Через GitHub Actions (автоматически)
+### Через GitHub (рекомендуется)
 
-1. Загрузите код в GitHub репозиторий
-2. GitHub Actions соберёт `.exe` на Windows-сервере
-3. Скачайте файл из **Actions → Build Windows EXE → Artifacts → HOTERRA-HDMS-Windows**
+**Прямая ссылка на скачивание:**
 
-Для ручного запуска сборки: **Actions → Build Windows EXE → Run workflow**
+https://github.com/hn078/hoterra/releases/latest
 
-После ручного запуска также создаётся GitHub Release с установщиком.
+Скачайте файл `HOTERRA Document Management System Setup 1.0.2.exe` и запустите.
+
+Альтернатива через Actions (нужен вход в GitHub):
+
+https://github.com/hn078/hoterra/actions
 
 ## Устранение неполадок (Windows)
 
