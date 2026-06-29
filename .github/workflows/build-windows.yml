@@ -35,8 +35,15 @@ jobs:
           npx prisma migrate deploy
           npm run db:seed
         env:
-          DATABASE_URL: file:./prisma/dev.db
+          DATABASE_URL: file:./dev.db
           JWT_SECRET: hoterra-hdms-ci-secret
+
+      - name: Verify seeded database
+        run: |
+          if (!(Test-Path "prisma/dev.db")) { throw "Seeded database prisma/dev.db not found" }
+          $size = (Get-Item "prisma/dev.db").Length
+          Write-Host "Seeded DB size: $size bytes"
+          if ($size -lt 16384) { throw "Seeded database looks empty ($size bytes)" }
 
       - name: Verify Prisma client bundle
         run: |
@@ -48,7 +55,7 @@ jobs:
       - name: Build application
         run: npm run build:app
         env:
-          DATABASE_URL: file:./prisma/dev.db
+          DATABASE_URL: file:./dev.db
 
       - name: Build Windows installer
         run: npm run dist:win
@@ -57,8 +64,13 @@ jobs:
         run: |
           $client = "release/win-unpacked/resources/prisma/generated-client/default.js"
           $runtime = "release/win-unpacked/resources/prisma/npm-client/runtime/library.js"
+          $templateDb = "release/win-unpacked/resources/database/hoterra-template.db"
           if (!(Test-Path $client)) { throw "Packaged Prisma client missing: $client" }
           if (!(Test-Path $runtime)) { throw "Packaged Prisma runtime missing: $runtime" }
+          if (!(Test-Path $templateDb)) { throw "Packaged template DB missing: $templateDb" }
+          $dbSize = (Get-Item $templateDb).Length
+          Write-Host "Packaged template DB size: $dbSize bytes"
+          if ($dbSize -lt 16384) { throw "Packaged template DB looks empty ($dbSize bytes)" }
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4

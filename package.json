@@ -1,6 +1,6 @@
 {
   "name": "hoterra-hdms",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "HOTERRA Hotel Document Management System",
   "main": "dist-electron/main.js",
   "author": "HOTERRA",

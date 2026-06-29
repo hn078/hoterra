@@ -39,19 +39,37 @@ function setupPrisma() {
   patchPrismaModuleResolution(isDev, process.resourcesPath, path.join(__dirname, '..'), log);
 }
 
+// A correctly seeded SQLite database is well above this size; an empty or
+// partially-created database (from earlier broken builds) is far smaller.
+const MIN_VALID_DB_SIZE = 16384;
+
 function prepareDatabase() {
   const userData = app.getPath('userData');
   const dbFile = path.join(userData, 'hoterra.db');
+  const markerFile = path.join(userData, 'db.initialized');
 
   fs.mkdirSync(userData, { recursive: true });
 
-  if (!fs.existsSync(dbFile)) {
-    const templateDb = getResourcePath('database', 'hoterra-template.db');
-    log(`Template DB: ${templateDb} (exists: ${fs.existsSync(templateDb)})`);
-    if (fs.existsSync(templateDb)) {
+  const templateDb = getResourcePath('database', 'hoterra-template.db');
+  const templateExists = fs.existsSync(templateDb);
+  log(`Template DB: ${templateDb} (exists: ${templateExists})`);
+
+  const dbExists = fs.existsSync(dbFile);
+  const dbSize = dbExists ? fs.statSync(dbFile).size : 0;
+
+  if (templateExists) {
+    // (Re)initialize when the local DB is missing or looks empty/broken.
+    // This self-heals installs that were created by earlier versions where
+    // the template was never bundled, leaving an empty database.
+    if (!dbExists || dbSize < MIN_VALID_DB_SIZE) {
       fs.copyFileSync(templateDb, dbFile);
-      log('Copied template database');
+      fs.writeFileSync(markerFile, String(fs.statSync(templateDb).size));
+      log(`Initialized database from template (dbExisted=${dbExists}, dbSize=${dbSize})`);
+    } else {
+      log(`Existing database OK (size=${dbSize})`);
     }
+  } else if (!dbExists) {
+    log('ERROR: no template DB bundled and no existing database present');
   }
 
   const uploadsDir = path.join(userData, 'uploads');
