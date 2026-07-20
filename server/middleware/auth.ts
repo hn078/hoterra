@@ -66,6 +66,11 @@ export function canViewAllDocuments(role: Role): boolean {
   return VIEW_ALL_ROLES.includes(role);
 }
 
+export function canViewDocument(user: AuthUser, document: { departmentId: string }): boolean {
+  if (canViewAllDocuments(user.role)) return true;
+  return document.departmentId === user.departmentId;
+}
+
 export function canManageDocuments(role: Role): boolean {
   return MANAGE_DOC_ROLES.includes(role);
 }

@@ -14,7 +14,7 @@ interface PageTabsProps {
 
 export function PageTabs({ tabs, active, onChange }: PageTabsProps) {
   return (
-    <div className="flex flex-wrap gap-4 border-b border-gray-200 bg-white px-6">
+    <div className="page-tabs">
       {tabs.map((tab) => (
         <button
           key={tab.id}

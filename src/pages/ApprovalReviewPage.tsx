@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Download,
@@ -12,18 +12,43 @@ import {
   Send,
   ExternalLink,
   FileText,
+  Search,
+  Printer,
+  Archive,
+  Eye,
+  History,
+  Workflow,
+  Upload,
 } from 'lucide-react';
-import { DepartmentBadge, StatusBadge } from '@/components/layout/Sidebar';
+import { DepartmentBadge } from '@/components/layout/Sidebar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { DocumentPreviewCanvas } from '@/components/documents/DocumentPreviewCanvas';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
-import type { Document } from '@/types';
-import { CATEGORY_LABELS } from '@/types';
-import { formatDate, formatDateTime, getInitials } from '@/lib/utils';
+import type { ChatMessageDocument, ChatMessageFileAttachment, Document } from '@/types';
+import { CATEGORY_LABELS, STATUS_COLORS, STATUS_LABELS, ROLE_LABELS } from '@/types';
+import { cn, fileToBase64, formatDate, formatDateTime, formatFileSize, getInitials } from '@/lib/utils';
+import { parseWorkflowSteps, stepDisplayLabel } from '@/lib/workflows';
+import {
+  canUserActOnApproval,
+  expectedSignerRole,
+  hasUserSignedAtCurrentStep,
+  PENDING_APPROVAL_STATUSES,
+} from '@/lib/signatures';
 import type { DocumentPriority } from '@/types';
 
 const REVIEW_TABS = ['Comments', 'History', 'Workflow', 'Details'] as const;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+const ARCHIVE_ROLES = ['HOD', 'GENERAL_MANAGER', 'SYSTEM_ADMINISTRATOR'] as const;
+
+function downloadAttachment(filePath: string) {
+  const base =
+    typeof window !== 'undefined' && window.__HOTERRA_API__
+      ? window.__HOTERRA_API__.replace('/api', '')
+      : 'http://localhost:3001';
+  window.open(`${base}${filePath}`, '_blank');
+}
 
 const PRIORITY_STYLE: Record<DocumentPriority, string> = {
   HIGH: 'text-red-600',
@@ -99,6 +124,18 @@ export function ApprovalReviewPage() {
   const [loading, setLoading] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
   const [reviewTab, setReviewTab] = useState<(typeof REVIEW_TABS)[number]>('Comments');
+  const [attachedDocument, setAttachedDocument] = useState<ChatMessageDocument | null>(null);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [showDocPicker, setShowDocPicker] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [docSearch, setDocSearch] = useState('');
+  const [pickerDocs, setPickerDocs] = useState<Document[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'download' | 'more' | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const headerActionsRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (id) {
@@ -106,8 +143,83 @@ export function ApprovalReviewPage() {
     }
   }, [id]);
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (headerActionsRef.current && !headerActionsRef.current.contains(e.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const searchDocuments = useCallback(async (query: string) => {
+    setPickerLoading(true);
+    try {
+      const params: Record<string, string> = { limit: '50' };
+      if (query.trim()) params.search = query.trim();
+      const res = await api.getDocuments(params);
+      setPickerDocs(res.data.filter((d) => d.id !== id));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPickerLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!showDocPicker) return;
+    const timer = window.setTimeout(() => {
+      searchDocuments(docSearch);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [docSearch, showDocPicker, searchDocuments]);
+
+  const openDocPicker = () => {
+    setShowDocPicker(true);
+    setDocSearch('');
+    setPickerLoading(true);
+    api
+      .getDocuments({ limit: '50' })
+      .then((res) => setPickerDocs(res.data.filter((d) => d.id !== id)))
+      .catch(console.error)
+      .finally(() => setPickerLoading(false));
+  };
+
+  const selectDocument = (docItem: Document) => {
+    setAttachedFile(null);
+    setAttachedDocument({
+      id: docItem.id,
+      title: docItem.title,
+      code: docItem.code,
+      status: docItem.status,
+    });
+    setShowDocPicker(false);
+    setShowAttachMenu(false);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      alert('File exceeds maximum size of 10 MB');
+      return;
+    }
+    setAttachedDocument(null);
+    setAttachedFile(file);
+    setShowAttachMenu(false);
+  };
+
+  const hasCommentAttachment = !!attachedDocument || !!attachedFile;
+
+  const canAct = doc ? canUserActOnApproval(currentUser, doc.status) : false;
+  const canSign = doc ? canAct && !hasUserSignedAtCurrentStep(doc, currentUser) : false;
+  const expectedRole = doc ? expectedSignerRole(doc.status) : null;
+  const awaitingApproval = doc ? PENDING_APPROVAL_STATUSES.includes(doc.status) : false;
+
   const handleSign = async () => {
-    if (!id) return;
+    if (!id || !canSign) return;
     const me = currentUser?.signatureImage ? currentUser : await api.getMe();
     if (!me.signatureImage) {
       alert('Upload your signature image in your profile before signing.');
@@ -130,14 +242,32 @@ export function ApprovalReviewPage() {
   };
 
   const handlePostComment = async () => {
-    if (!id || !newComment.trim() || postingComment) return;
+    const text = newComment.trim();
+    if (!id || (!text && !hasCommentAttachment) || postingComment) return;
     setPostingComment(true);
+    const sentDoc = attachedDocument;
+    const sentFile = attachedFile;
     try {
-      const created = await api.addDocumentComment(id, newComment.trim());
+      let filePayload: { fileName: string; fileType: string; data: string } | undefined;
+      if (sentFile) {
+        const data = await fileToBase64(sentFile);
+        filePayload = {
+          fileName: sentFile.name,
+          fileType: sentFile.type || sentFile.name.split('.').pop() || 'bin',
+          data,
+        };
+      }
+
+      const created = await api.addDocumentComment(id, text, {
+        ...(sentDoc ? { attachedDocumentId: sentDoc.id } : {}),
+        ...(filePayload ? { file: filePayload } : {}),
+      });
       setDoc((prev) =>
         prev ? { ...prev, comments: [...(prev.comments ?? []), created] } : prev
       );
       setNewComment('');
+      setAttachedDocument(null);
+      setAttachedFile(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to post comment');
     } finally {
@@ -146,25 +276,86 @@ export function ApprovalReviewPage() {
   };
 
   const handleAction = async (action: 'approve' | 'reject' | 'request_changes') => {
-    if (!id || loading) return;
+    if (!id || loading || !canAct) return;
     setLoading(true);
     try {
       await api.approveDocument(id, action, comment || undefined);
       navigate('/approvals');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Action failed');
+      const message = err instanceof Error ? err.message : 'Action failed';
+      if (message.includes('already completed') && id) {
+        const updated = await api.getDocument(id);
+        setDoc(updated);
+      }
+      alert(message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = () => {
-    if (typeof window.print === 'function') {
-      window.print();
+  const closeMenu = () => setOpenMenu(null);
+  const toggleMenu = (menu: 'download' | 'more') =>
+    setOpenMenu((current) => (current === menu ? null : menu));
+
+  const handlePrint = () => {
+    closeMenu();
+    window.print();
+  };
+
+  const handleDownloadFile = () => {
+    closeMenu();
+    if (doc?.filePath?.startsWith('/uploads')) {
+      downloadAttachment(doc.filePath);
     } else {
-      alert(`Download: ${doc?.title ?? 'Document'}`);
+      window.print();
     }
   };
+
+  const handleOpenDocument = () => {
+    closeMenu();
+    if (id) navigate(`/documents/${id}`);
+  };
+
+  const handleOpenNewTab = () => {
+    closeMenu();
+    if (id) window.open(`/documents/${id}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleViewHistory = () => {
+    closeMenu();
+    setReviewTab('History');
+  };
+
+  const handleViewWorkflow = () => {
+    closeMenu();
+    setReviewTab('Workflow');
+  };
+
+  const handleViewDetails = () => {
+    closeMenu();
+    setReviewTab('Details');
+  };
+
+  const handleArchive = async () => {
+    if (!id || !doc) return;
+    closeMenu();
+    const reason = prompt('Archive reason (optional):') ?? undefined;
+    setArchiving(true);
+    try {
+      await api.archiveDocument(id, reason);
+      alert('Document archived');
+      navigate('/archive');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to archive document');
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const canArchive =
+    !!currentUser &&
+    ARCHIVE_ROLES.includes(currentUser.role as (typeof ARCHIVE_ROLES)[number]) &&
+    doc?.status !== 'ARCHIVED';
 
   if (!doc) {
     return (
@@ -195,17 +386,57 @@ export function ApprovalReviewPage() {
               Review document details, check content and approve or request changes
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleDownload} className="btn-secondary">
-              <Download className="h-4 w-4" />
-              Download
-              <ChevronDown className="h-3 w-3" />
-            </button>
-            <button className="btn-secondary">
-              More Actions
-              <ChevronDown className="h-3 w-3" />
-            </button>
+          <div ref={headerActionsRef} className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => toggleMenu('download')}
+                aria-expanded={openMenu === 'download'}
+                className={cn('btn-secondary', openMenu === 'download' && 'ring-2 ring-hoterra-gold/30')}
+              >
+                <Download className="h-4 w-4" />
+                Download
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {openMenu === 'download' && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  {doc.filePath?.startsWith('/uploads') && (
+                    <MenuItem icon={Download} label="Download file" onClick={handleDownloadFile} />
+                  )}
+                  <MenuItem icon={Printer} label="Print / Save as PDF" onClick={handlePrint} />
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => toggleMenu('more')}
+                aria-expanded={openMenu === 'more'}
+                className={cn('btn-secondary', openMenu === 'more' && 'ring-2 ring-hoterra-gold/30')}
+              >
+                More Actions
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {openMenu === 'more' && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                  <MenuItem icon={Eye} label="View document details" onClick={handleOpenDocument} />
+                  <MenuItem icon={ExternalLink} label="Open in new tab" onClick={handleOpenNewTab} />
+                  <MenuItem icon={History} label="View history" onClick={handleViewHistory} />
+                  <MenuItem icon={Workflow} label="View workflow" onClick={handleViewWorkflow} />
+                  <MenuItem icon={FileText} label="View details tab" onClick={handleViewDetails} />
+                  {canArchive && (
+                    <MenuItem
+                      icon={Archive}
+                      label={archiving ? 'Archiving...' : 'Archive document'}
+                      onClick={handleArchive}
+                      disabled={archiving}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
             <button
+              type="button"
               onClick={() => navigate('/approvals')}
               className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
             >
@@ -265,8 +496,8 @@ export function ApprovalReviewPage() {
                 label="Due Date"
                 value={<span className="font-medium text-orange-600">{formatDate(doc.nextReviewDate)}</span>}
               />
-              <InfoRow label="Current Step" value="Your Approval" />
-              <InfoRow label="Next Step" value="Publish" />
+              <InfoRow label="Current Step" value={canAct ? 'Your Approval' : expectedRole ? `Awaiting ${expectedRole.replace(/_/g, ' ')}` : doc.status.replace(/_/g, ' ')} />
+              <InfoRow label="Next Step" value={doc.status === 'SIGNED_GM' ? 'Publish' : 'Next approver'} />
             </dl>
           </section>
 
@@ -321,35 +552,48 @@ export function ApprovalReviewPage() {
           </section>
 
           <div className="space-y-2">
-            <button
-              onClick={() => handleAction('approve')}
-              disabled={loading}
-              className="w-full rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : 'Approve'}
-            </button>
-            <button
-              onClick={() => handleAction('request_changes')}
-              disabled={loading}
-              className="w-full rounded-lg border border-yellow-400 py-2.5 text-sm font-medium text-yellow-700 hover:bg-yellow-50 disabled:opacity-50"
-            >
-              Request Changes
-            </button>
-            <button
-              onClick={() => handleAction('reject')}
-              disabled={loading}
-              className="w-full rounded-lg border border-red-300 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              Reject
-            </button>
-            <button
-              onClick={handleSign}
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-hoterra-navy py-2.5 text-sm font-medium text-white hover:bg-hoterra-steel disabled:opacity-50"
-            >
-              <PenLine className="h-4 w-4" />
-              Sign
-            </button>
+            {!canAct && awaitingApproval && (
+              <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                {expectedRole
+                  ? `This step requires action from ${expectedRole.replace(/_/g, ' ').toLowerCase()}.`
+                  : 'No approval action is required from you at this step.'}
+              </p>
+            )}
+            {canAct && (
+              <>
+                <button
+                  onClick={() => handleAction('approve')}
+                  disabled={loading}
+                  className="w-full rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  {loading ? 'Processing...' : 'Approve'}
+                </button>
+                <button
+                  onClick={() => handleAction('request_changes')}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-yellow-400 py-2.5 text-sm font-medium text-yellow-700 hover:bg-yellow-50 disabled:opacity-50"
+                >
+                  Request Changes
+                </button>
+                <button
+                  onClick={() => handleAction('reject')}
+                  disabled={loading}
+                  className="w-full rounded-lg border border-red-300 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Reject
+                </button>
+              </>
+            )}
+            {canSign && (
+              <button
+                onClick={handleSign}
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-hoterra-navy py-2.5 text-sm font-medium text-white hover:bg-hoterra-steel disabled:opacity-50"
+              >
+                <PenLine className="h-4 w-4" />
+                Sign
+              </button>
+            )}
           </div>
         </aside>
 
@@ -378,7 +622,39 @@ export function ApprovalReviewPage() {
           <div className="flex-1 overflow-y-auto p-4">
             {reviewTab === 'Comments' && (
               <div className="space-y-4">
+                {attachedDocument && (
+                  <div className="flex items-start gap-2">
+                    <CommentDocumentCard document={attachedDocument} compact />
+                    <button
+                      type="button"
+                      onClick={() => setAttachedDocument(null)}
+                      className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      title="Remove attachment"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                {attachedFile && (
+                  <div className="flex items-start gap-2">
+                    <CommentFilePreview file={attachedFile} />
+                    <button
+                      type="button"
+                      onClick={() => setAttachedFile(null)}
+                      className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      title="Remove file"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
                   <input
                     type="text"
                     placeholder="Add a comment..."
@@ -387,12 +663,42 @@ export function ApprovalReviewPage() {
                     onKeyDown={(e) => e.key === 'Enter' && handlePostComment()}
                     className="input flex-1 text-sm"
                   />
-                  <button className="rounded-lg p-2 text-gray-400 hover:bg-gray-100">
-                    <Paperclip className="h-4 w-4" />
-                  </button>
+                  <div className="relative" ref={attachMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setShowAttachMenu((v) => !v)}
+                      className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-hoterra-navy"
+                      title="Attach"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </button>
+                    {showAttachMenu && (
+                      <div className="absolute bottom-full right-0 z-10 mb-1 w-52 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <Upload className="h-4 w-4 text-hoterra-navy" />
+                          Upload from computer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            openDocPicker();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <FileText className="h-4 w-4 text-hoterra-navy" />
+                          Attach system document
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={handlePostComment}
-                    disabled={postingComment || !newComment.trim()}
+                    disabled={postingComment || (!newComment.trim() && !hasCommentAttachment)}
                     className="rounded-lg bg-hoterra-navy p-2 text-white hover:bg-hoterra-steel disabled:opacity-50"
                   >
                     <Send className="h-4 w-4" />
@@ -430,7 +736,21 @@ export function ApprovalReviewPage() {
                           {c.status === 'resolved' ? 'Resolved' : 'Open'}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-600">{c.text}</p>
+                      {c.text && <p className="text-xs text-gray-600">{c.text}</p>}
+                      {c.attachedDocument && (
+                        <CommentDocumentCard
+                          document={c.attachedDocument}
+                          className={c.text ? 'mt-2' : undefined}
+                        />
+                      )}
+                      {c.fileAttachment && id && (
+                        <CommentFileCard
+                          attachment={c.fileAttachment}
+                          documentId={id}
+                          commentId={c.id}
+                          className={c.text || c.attachedDocument ? 'mt-2' : undefined}
+                        />
+                      )}
                     </div>
                   ))
                 )}
@@ -455,10 +775,10 @@ export function ApprovalReviewPage() {
                 {doc.workflow ? (
                   <>
                     <p className="text-sm font-medium text-hoterra-navy">{doc.workflow.name}</p>
-                    {doc.workflow.steps.map((step, i) => (
-                      <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-100 p-2 text-xs">
+                    {parseWorkflowSteps(doc.workflow.steps).map((step, i) => (
+                      <div key={step.id ?? i} className="flex items-center gap-2 rounded-lg border border-gray-100 p-2 text-xs">
                         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-hoterra-navy text-[10px] font-bold text-white">{i + 1}</span>
-                        <span className="text-gray-700">{step}</span>
+                        <span className="text-gray-700">{stepDisplayLabel(step, ROLE_LABELS)}</span>
                       </div>
                     ))}
                   </>
@@ -546,14 +866,211 @@ export function ApprovalReviewPage() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-gray-400">Uploaded {formatDate(doc.createdAt)} by {doc.author.firstName} {doc.author.lastName}</span>
-              <button className="btn-secondary py-1.5 text-xs">
+              <button
+                type="button"
+                onClick={handleOpenNewTab}
+                className="btn-secondary py-1.5 text-xs"
+              >
                 <ExternalLink className="h-3 w-3" /> Open in New Tab
               </button>
             </div>
           </div>
         </div>
       </div>
+
+      {showDocPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+              <h3 className="font-semibold text-hoterra-navy">Attach Document</h3>
+              <button
+                type="button"
+                onClick={() => setShowDocPicker(false)}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="border-b border-gray-200 px-5 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={docSearch}
+                  onChange={(e) => setDocSearch(e.target.value)}
+                  placeholder="Search by title or code..."
+                  className="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+              {pickerLoading ? (
+                <p className="py-8 text-center text-sm text-gray-400">Loading documents...</p>
+              ) : pickerDocs.length === 0 ? (
+                <p className="py-8 text-center text-sm text-gray-400">No documents found</p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {pickerDocs.map((docItem) => (
+                    <li key={docItem.id}>
+                      <button
+                        type="button"
+                        onClick={() => selectDocument(docItem)}
+                        className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-gray-50"
+                      >
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-hoterra-navy/10 text-hoterra-navy">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-hoterra-navy">{docItem.title}</div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-gray-500">{docItem.code}</span>
+                            <span
+                              className={cn(
+                                'rounded border px-1.5 py-0.5 text-[10px] font-medium',
+                                STATUS_COLORS[docItem.status]
+                              )}
+                            >
+                              {STATUS_LABELS[docItem.status]}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function CommentFilePreview({ file }: { file: File }) {
+  return (
+    <div className="flex flex-1 items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2">
+      <Paperclip className="h-4 w-4 shrink-0 text-hoterra-navy" />
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium text-hoterra-navy">{file.name}</div>
+        <div className="text-xs text-gray-500">{formatFileSize(file.size)}</div>
+      </div>
+    </div>
+  );
+}
+
+function CommentFileCard({
+  attachment,
+  documentId,
+  commentId,
+  className,
+}: {
+  attachment: ChatMessageFileAttachment;
+  documentId: string;
+  commentId: string;
+  className?: string;
+}) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      await api.downloadCommentAttachment(documentId, commentId, attachment.fileName);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={downloading}
+      className={cn(
+        'block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left transition-colors hover:border-hoterra-steel hover:bg-gray-50',
+        className
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <Paperclip className="h-4 w-4 shrink-0 text-hoterra-navy" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-hoterra-navy">{attachment.fileName}</div>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-xs text-gray-500">{formatFileSize(attachment.fileSize)}</span>
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-hoterra-steel">
+              <Download className="h-3 w-3" />
+              {downloading ? 'Downloading...' : 'Download'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function CommentDocumentCard({
+  document,
+  compact = false,
+  className,
+}: {
+  document: ChatMessageDocument;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <Link
+      to={`/documents/${document.id}`}
+      className={cn(
+        'block rounded-lg border border-gray-200 bg-white px-3 py-2 transition-colors hover:border-hoterra-steel hover:bg-gray-50',
+        compact && 'flex-1',
+        className
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <FileText className="h-4 w-4 shrink-0 text-hoterra-navy" />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-hoterra-navy">{document.title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-gray-500">{document.code}</span>
+            <span
+              className={cn(
+                'rounded border px-1.5 py-0.5 text-[10px] font-medium',
+                STATUS_COLORS[document.status]
+              )}
+            >
+              {STATUS_LABELS[document.status]}
+            </span>
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function MenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+    >
+      <Icon className="h-4 w-4 text-gray-400" />
+      {label}
+    </button>
   );
 }
 

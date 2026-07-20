@@ -18,7 +18,29 @@
   }
 
   .page-stats {
-    @apply bg-hoterra-page px-6 pt-6;
+    @apply bg-hoterra-page px-6 pt-4;
+  }
+
+  .page-stats .grid {
+    @apply !mb-4 !gap-3;
+  }
+
+  /* Gray band below stat cards when tabs follow (class is primary; :has is fallback) */
+  .page-stats.page-stats--tabs,
+  .page-stats:has(+ .page-tabs),
+  .page-stats:has(~ * .page-tabs) {
+    @apply pb-4;
+  }
+
+  .page-stats.page-stats--tabs .grid,
+  .page-stats:has(+ .page-tabs) .grid,
+  .page-stats:has(~ * .page-tabs) .grid {
+    @apply !mb-0;
+  }
+
+  .page-tabs {
+    @apply flex flex-wrap gap-4 border-b border-gray-200 bg-white px-6;
+    padding-top: 6px;
   }
 
   .card {

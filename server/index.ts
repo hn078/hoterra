@@ -14,6 +14,10 @@ import searchRoutes from './routes/search';
 import reportRoutes from './routes/reports';
 import roleRoutes from './routes/roles';
 import favoritesRoutes from './routes/favorites';
+import conversationRoutes from './routes/conversations';
+import workforceRoutes from './routes/workforce';
+import vendorPortalRoutes from './routes/vendorPortal';
+import { startRecurringScheduler } from './lib/workforceRecurring';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -47,6 +51,16 @@ export function createApp() {
   app.use('/api/reports', reportRoutes);
   app.use('/api/roles', roleRoutes);
   app.use('/api/favorites', favoritesRoutes);
+  app.use('/api/conversations', conversationRoutes);
+  app.use('/api/workforce', workforceRoutes);
+  app.use('/api/vendor', vendorPortalRoutes);
+
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('[api]', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
   return app;
 }
@@ -57,6 +71,7 @@ export function startServer(port = Number(process.env.PORT) || 3001) {
   return new Promise<{ port: number }>((resolve, reject) => {
     const server = app.listen(port, '127.0.0.1', () => {
       console.log(`HOTERRA HDMS API:  http://127.0.0.1:${port}/api`);
+      startRecurringScheduler();
       resolve({ port });
     });
 
@@ -71,5 +86,8 @@ export function startServer(port = Number(process.env.PORT) || 3001) {
 }
 
 if (require.main === module) {
+  process.on('unhandledRejection', (reason) => {
+    console.error('[unhandledRejection]', reason);
+  });
   startServer();
 }

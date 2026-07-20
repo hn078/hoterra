@@ -16,6 +16,7 @@ import {
 import { Header } from '@/components/layout/Sidebar';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
+import { Switch, SwitchRow } from '@/components/ui/Switch';
 import { api } from '@/lib/api';
 import type { Notification } from '@/types';
 import { timeAgo } from '@/lib/utils';
@@ -165,8 +166,8 @@ export function NotificationsPage() {
         }
       />
 
-      <div className="page-stats">
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="page-stats page-stats--tabs">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <DashStatCard label="Total Notifications" value={stats.total} icon={Bell} iconColor="text-blue-600" iconBg="bg-blue-50" />
           <DashStatCard label="Unread" value={stats.unread} icon={BellOff} iconColor="text-orange-600" iconBg="bg-orange-50" />
           <DashStatCard label="Today" value={stats.today} icon={MessageSquare} iconColor="text-green-600" iconBg="bg-green-50" />
@@ -253,15 +254,13 @@ export function NotificationsPage() {
 
           <div className="mb-6">
             <h4 className="mb-2 text-xs font-medium uppercase text-gray-400">Filters</h4>
-            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-100 p-3 hover:bg-gray-50">
-              <input
-                type="checkbox"
+            <div className="rounded-lg border border-gray-100 p-3 hover:bg-gray-50">
+              <SwitchRow
+                label="Show unread only"
                 checked={showUnreadOnly}
-                onChange={(e) => setShowUnreadOnly(e.target.checked)}
-                className="rounded border-gray-300"
+                onChange={setShowUnreadOnly}
               />
-              <span className="text-sm text-gray-700">Show unread only</span>
-            </label>
+            </div>
           </div>
 
           <div className="mb-6">
@@ -275,21 +274,20 @@ export function NotificationsPage() {
                   { key: 'sms' as const, label: 'SMS', icon: MessageSquare },
                 ] as const
               ).map(({ key, label, icon: Icon }) => (
-                <label
+                <div
                   key={key}
-                  className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
+                  className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
                 >
                   <span className="flex items-center gap-2 text-sm text-gray-700">
                     <Icon className="h-4 w-4 text-gray-400" />
                     {label}
                   </span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={channels[key]}
                     onChange={() => toggleChannel(key)}
-                    className="rounded border-gray-300"
+                    aria-label={label}
                   />
-                </label>
+                </div>
               ))}
             </div>
           </div>

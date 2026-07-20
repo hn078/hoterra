@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { CountBadge } from '@/components/ui/CountBadge';
+import { useNavBadges } from '@/hooks/useNavBadges';
+import { HeaderActions } from '@/components/layout/HeaderActions';
 import {
   LayoutDashboard,
   FileText,
@@ -7,6 +10,7 @@ import {
   Building2,
   GitBranch,
   Users,
+  Briefcase,
   BarChart3,
   Archive,
   ScrollText,
@@ -16,8 +20,6 @@ import {
   ChevronLeft,
   Search,
   Plus,
-  Calendar,
-  Mail,
   ChevronDown,
   LogOut,
   User,
@@ -26,7 +28,6 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore, useUIStore } from '@/store/auth';
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS, type DocumentStatus } from '@/types';
 import { cn, getInitials } from '@/lib/utils';
-import { api } from '@/lib/api';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -36,6 +37,7 @@ const navItems = [
   { to: '/departments', icon: Building2, label: 'Departments' },
   { to: '/workflows', icon: GitBranch, label: 'Workflows' },
   { to: '/users', icon: Users, label: 'Users & Roles' },
+  { to: '/workforce', icon: Briefcase, label: 'Casual Workforce' },
   { to: '/reports', icon: BarChart3, label: 'Reports' },
   { to: '/archive', icon: Archive, label: 'Archive' },
   { to: '/audit', icon: ScrollText, label: 'Audit Log' },
@@ -47,15 +49,7 @@ export function Sidebar() {
   const { user } = useAuthStore();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const navigate = useNavigate();
-  const [badges, setBadges] = useState({ approvals: 0, notifications: 0 });
-
-  useEffect(() => {
-    if (!user) return;
-    Promise.all([
-      api.getApprovals('pending', 1).then((r) => r.counts.pending).catch(() => 0),
-      api.getUnreadCount().then((r) => r.count).catch(() => 0),
-    ]).then(([approvals, notifications]) => setBadges({ approvals, notifications }));
-  }, [user]);
+  const badges = useNavBadges();
 
   if (!user) return null;
 
@@ -63,10 +57,15 @@ export function Sidebar() {
     <aside
       className={cn(
         'flex flex-col bg-hoterra-navy text-white transition-all duration-300',
-        sidebarCollapsed ? 'w-[72px]' : 'w-64'
+        sidebarCollapsed ? 'w-16' : 'w-64'
       )}
     >
-      <div className="flex items-center gap-3 border-b border-white/10 px-4 py-5">
+      <div
+        className={cn(
+          'flex items-center border-b border-white/10 py-5',
+          sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-4'
+        )}
+      >
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-hoterra-gold font-bold text-hoterra-navy">
           H
         </div>
@@ -78,8 +77,8 @@ export function Sidebar() {
         )}
       </div>
 
-      <div className="border-b border-white/10 px-4 py-4">
-        <div className="flex items-center gap-3">
+      <div className={cn('border-b border-white/10 py-4', sidebarCollapsed ? 'px-0' : 'px-4')}>
+        <div className={cn('flex items-center', sidebarCollapsed ? 'justify-center' : 'gap-3')}>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-hoterra-steel text-xs font-semibold">
             {getInitials(user.firstName, user.lastName)}
           </div>
@@ -100,7 +99,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
+      <nav className={cn('flex-1 overflow-y-auto py-3', sidebarCollapsed ? 'px-1.5' : 'px-2')}>
         {navItems.map(({ to, icon: Icon, label, badgeKey }) => {
           const badge = badgeKey ? badges[badgeKey] : undefined;
           return (
@@ -110,7 +109,8 @@ export function Sidebar() {
             end={to === '/'}
             className={({ isActive }) =>
               cn(
-                'mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
+                'relative mb-0.5 flex items-center rounded-lg py-2.5 text-sm transition-colors',
+                sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3',
                 isActive
                   ? 'nav-active shadow-sm'
                   : 'text-white/75 hover:bg-white/5 hover:text-white'
@@ -118,14 +118,13 @@ export function Sidebar() {
             }
           >
             <Icon className="h-5 w-5 shrink-0" />
+            {sidebarCollapsed && badge !== undefined && badge > 0 && (
+              <CountBadge count={badge} className="absolute right-0.5 top-1" />
+            )}
             {!sidebarCollapsed && (
               <>
                 <span className="flex-1 truncate">{label}</span>
-                {badge !== undefined && badge > 0 && (
-                  <span className="rounded-full bg-hoterra-gold px-1.5 py-0.5 text-[10px] font-bold text-hoterra-navy">
-                    {badge}
-                  </span>
-                )}
+                {badge !== undefined && badge > 0 && <CountBadge count={badge} />}
               </>
             )}
           </NavLink>
@@ -141,17 +140,23 @@ export function Sidebar() {
         )}
       </nav>
 
-      <div className="border-t border-white/10 p-3">
+      <div className={cn('border-t border-white/10', sidebarCollapsed ? 'p-1.5' : 'p-3')}>
         <button
           onClick={() => window.open('mailto:support@hoterra.az?subject=HOTERRA%20HDMS%20Support', '_blank')}
-          className="mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+          className={cn(
+            'mb-1 flex w-full items-center rounded-lg py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white',
+            sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'
+          )}
         >
           <HelpCircle className="h-5 w-5 shrink-0" />
           {!sidebarCollapsed && <span>Help & Support</span>}
         </button>
         <button
           onClick={toggleSidebar}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+          className={cn(
+            'flex w-full items-center rounded-lg py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white',
+            sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'
+          )}
         >
           <ChevronLeft
             className={cn('h-5 w-5 shrink-0 transition-transform', sidebarCollapsed && 'rotate-180')}
@@ -182,14 +187,8 @@ export function Header({ title, subtitle, showSearch, action }: HeaderProps) {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [notifCount, setNotifCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    api.getUnreadCount().then((r) => setNotifCount(r.count)).catch(() => {});
-  }, [user]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -245,28 +244,7 @@ export function Header({ title, subtitle, showSearch, action }: HeaderProps) {
         )}
 
         <div className="flex shrink-0 items-center gap-2">
-          {showSearch && (
-            <>
-              <button type="button" className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:block">
-                <Calendar className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/notifications')}
-                className="relative hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:block"
-              >
-                <Bell className="h-5 w-5" />
-                {notifCount > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-hoterra-gold px-1 text-[10px] font-bold text-hoterra-navy">
-                    {notifCount > 9 ? '9+' : notifCount}
-                  </span>
-                )}
-              </button>
-              <button type="button" className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:block">
-                <Mail className="h-5 w-5" />
-              </button>
-            </>
-          )}
+          <HeaderActions />
           {action}
           {user && (
             <div ref={menuRef} className="relative ml-2 hidden md:block">

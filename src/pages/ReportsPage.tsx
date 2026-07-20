@@ -142,7 +142,7 @@ export function ReportsPage() {
       </div>
 
       <div className="page-content">
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {KPI_CARDS.map((card) => {
             const raw = kpis?.[card.key];
             const value =

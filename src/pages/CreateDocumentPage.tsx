@@ -2,9 +2,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, Search, Upload, Bold, Italic, List, Link2 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
+import { SwitchField } from '@/components/ui/Switch';
 import { api } from '@/lib/api';
 import type { Department, Template, User, DocumentCategory, DocumentPriority, WorkflowItem } from '@/types';
-import { CATEGORY_LABELS } from '@/types';
+import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
+import {
+  parseWorkflowSteps,
+  stepDisplayLabel,
+  stepTypeMeta,
+  WORKFLOW_STATUS_LABELS,
+} from '@/lib/workflows';
 import { formatDate } from '@/lib/utils';
 
 const STEPS = [
@@ -56,14 +63,17 @@ export function CreateDocumentPage() {
       api.getUsers(),
       api.getWorkflows(),
     ]).then(([depts, tmpls, usrs, wfs]) => {
+      const activeWorkflows = wfs
+        .map((w) => ({ ...w, steps: parseWorkflowSteps(w.steps) }))
+        .filter((w) => w.status === 'ACTIVE');
       setDepartments(depts);
       setTemplates(tmpls);
       setUsers(usrs);
-      setWorkflows(wfs);
+      setWorkflows(activeWorkflows);
       const fo = depts.find((d) => d.code === 'FO');
       const nigar = usrs.find((u) => u.email === 'nigar.rustamova@hoterra.az');
       const fuad = usrs.find((u) => u.email === 'fuad.ahmadov@hoterra.az');
-      const defaultWf = wfs.find((w) => w.isDefault) || wfs[0];
+      const defaultWf = activeWorkflows.find((w) => w.isDefault) || activeWorkflows[0];
       setForm((f) => ({
         ...f,
         departmentId: fo?.id || depts[0]?.id || '',
@@ -418,31 +428,31 @@ export function CreateDocumentPage() {
             {step === 2 && (
               <div className="space-y-5">
                 <h3 className="text-sm font-semibold text-hoterra-navy">Access & Visibility</h3>
-                <ToggleField
+                <SwitchField
                   label="Public Document"
                   description="Make this document visible to all authenticated users"
                   checked={form.isPublic}
                   onChange={(v) => setForm({ ...form, isPublic: v })}
                 />
-                <ToggleField
+                <SwitchField
                   label="Allow Download"
                   description="Users can download a copy of this document"
                   checked={form.allowDownload}
                   onChange={(v) => setForm({ ...form, allowDownload: v })}
                 />
-                <ToggleField
+                <SwitchField
                   label="Allow Comments"
                   description="Enable comments and feedback on this document"
                   checked={form.allowComments}
                   onChange={(v) => setForm({ ...form, allowComments: v })}
                 />
-                <ToggleField
+                <SwitchField
                   label="Notify on Publish"
                   description="Send notifications when document is published"
                   checked={form.notifyOnPublish}
                   onChange={(v) => setForm({ ...form, notifyOnPublish: v })}
                 />
-                <ToggleField
+                <SwitchField
                   label="Require Acknowledgment"
                   description="Users must acknowledge reading this document"
                   checked={form.requireAcknowledgment}
@@ -466,6 +476,11 @@ export function CreateDocumentPage() {
                   review and sign before publication.
                 </p>
                 <div className="space-y-3">
+                  {workflows.length === 0 && (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      No active workflows. Activate a workflow in Settings → Workflows before creating documents.
+                    </p>
+                  )}
                   {workflows.map((wf) => (
                     <button
                       key={wf.id}
@@ -486,14 +501,29 @@ export function CreateDocumentPage() {
                                 Default
                               </span>
                             )}
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                              {WORKFLOW_STATUS_LABELS[wf.status]}
+                            </span>
                           </div>
                           {wf.description && (
                             <p className="mt-1 text-xs text-gray-500">{wf.description}</p>
                           )}
                           <div className="mt-2 flex flex-wrap gap-1">
                             {wf.steps.map((s, i) => (
-                              <span key={i} className="rounded bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600">
-                                {i + 1}. {s}
+                              <span
+                                key={s.id ?? i}
+                                className={`rounded px-2 py-0.5 text-[10px] ${
+                                  stepTypeMeta(s.type === 'SIGN' ? 'APPROVAL' : s.type).runtimeImplemented
+                                    ? 'bg-purple-50 text-purple-700'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}
+                                title={
+                                  stepTypeMeta(s.type === 'SIGN' ? 'APPROVAL' : s.type).runtimeImplemented
+                                    ? undefined
+                                    : 'Design only — not enforced at runtime yet'
+                                }
+                              >
+                                {i + 1}. {stepDisplayLabel(s, ROLE_LABELS)}
                               </span>
                             ))}
                           </div>
@@ -659,42 +689,6 @@ function Field({
       {children}
       {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
     </div>
-  );
-}
-
-function ToggleField({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-xl border border-gray-200 p-4 hover:bg-gray-50">
-      <div>
-        <p className="text-sm font-medium text-gray-800">{label}</p>
-        <p className="mt-0.5 text-xs text-gray-500">{description}</p>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-          checked ? 'bg-hoterra-steel' : 'bg-gray-300'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? 'left-5' : 'left-0.5'
-          }`}
-        />
-      </button>
-    </label>
   );
 }
 

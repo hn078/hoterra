@@ -27,6 +27,26 @@ export function formatDateTime(date: string | Date | null | undefined): string {
     minute: '2-digit',
   });
 }
+
+export function formatFileSize(bytes?: number | null): string {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1] ?? result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export function timeAgo(date: string): string {
   const now = new Date();
   const then = new Date(date);

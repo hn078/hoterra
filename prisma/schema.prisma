@@ -64,17 +64,58 @@ enum AuditAction {
   SUBMIT
 }
 
+enum ConversationType {
+  DIRECT
+  DEPARTMENT
+  HOTEL
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum WorkforceRequestStatus {
+  PENDING
+  AWAITING_EXTRA_APPROVAL
+  APPROVED
+  REJECTED
+  SENT_TO_VENDOR
+  VENDOR_ACCEPTED
+  VENDOR_DECLINED
+  COMPLETED
+  CANCELLED
+}
+
+enum WorkforceVendorMode {
+  DIRECT
+  BROADCAST
+}
+
+enum WorkforceShift {
+  MORNING
+  EVENING
+  NIGHT
+  CUSTOM
+}
+
 model Department {
-  id          String     @id @default(uuid())
-  name        String     @unique
-  code        String     @unique
-  color       String     @default("#294660")
-  location    String     @default("Main Hotel")
-  description String?
-  createdAt   DateTime   @default(now())
-  users       User[]
-  documents   Document[]
-  templates   Template[]
+  id            String         @id @default(uuid())
+  name          String         @unique
+  code          String         @unique
+  color         String         @default("#294660")
+  location      String         @default("Main Hotel")
+  description   String?
+  createdAt     DateTime       @default(now())
+  users         User[]
+  documents     Document[]
+  templates     Template[]
+  conversations Conversation[]
+  workforceRequests       WorkforceRequest[]
+  workforceApprovalRoute  WorkforceApprovalRoute?
+  casualBudgets           DepartmentCasualBudget[]
+  workforceTemplates      WorkforceRequestTemplate[]
 }
 
 model User {
@@ -95,8 +136,11 @@ model User {
   ownedDocs    Document[]        @relation("DocumentOwner")
   auditLogs    AuditLog[]
   signatures   Signature[]
-  comments     DocumentComment[]
-  favorites    UserFavorite[]
+  comments                DocumentComment[]
+  favorites               UserFavorite[]
+  conversationParticipants ConversationParticipant[]
+  messages                Message[]
+  workforceRequests       WorkforceRequest[]         @relation("WorkforceRequestCreator")
 }
 
 model Document {
@@ -143,6 +187,8 @@ model Document {
   comments        DocumentComment[]
   attachments     DocumentAttachment[]
   favorites       UserFavorite[]
+  attachedInMessages Message[]          @relation("MessageDocument")
+  attachedInComments DocumentComment[]  @relation("CommentAttachedDocument")
 }
 
 model DocumentVersion {
@@ -168,14 +214,20 @@ model DocumentHistory {
 }
 
 model DocumentComment {
-  id         String   @id @default(uuid())
-  documentId String
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  text       String
-  status     String   @default("open")
-  createdAt  DateTime @default(now())
+  id                 String    @id @default(uuid())
+  documentId         String
+  document           Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User      @relation(fields: [userId], references: [id])
+  text               String
+  attachedDocumentId String?
+  attachedDocument   Document? @relation("CommentAttachedDocument", fields: [attachedDocumentId], references: [id], onDelete: SetNull)
+  attachmentFileName String?
+  attachmentFilePath String?
+  attachmentFileSize Int?
+  attachmentFileType String?
+  status             String    @default("open")
+  createdAt          DateTime  @default(now())
 }
 
 model DocumentAttachment {
@@ -208,12 +260,13 @@ model Template {
 }
 
 model WorkflowRoute {
-  id          String     @id @default(uuid())
+  id          String         @id @default(uuid())
   name        String
   description String?
   steps       String
-  isDefault   Boolean    @default(false)
-  createdAt   DateTime   @default(now())
+  isDefault   Boolean        @default(false)
+  status      WorkflowStatus @default(DRAFT)
+  createdAt   DateTime       @default(now())
   documents   Document[]
 }
 
@@ -294,4 +347,218 @@ model UserFavorite {
   createdAt  DateTime @default(now())
 
   @@unique([userId, documentId])
+}
+
+model Conversation {
+  id           String                    @id @default(uuid())
+  type         ConversationType
+  departmentId String?
+  department   Department?               @relation(fields: [departmentId], references: [id])
+  directKey    String?                   @unique
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@unique([type, departmentId])
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  joinedAt       DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id                 String       @id @default(uuid())
+  conversationId     String
+  conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId           String
+  sender             User         @relation(fields: [senderId], references: [id])
+  content            String
+  documentId         String?
+  document           Document?    @relation("MessageDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  attachmentFileName String?
+  attachmentFilePath String?
+  attachmentFileSize Int?
+  attachmentFileType String?
+  createdAt          DateTime     @default(now())
+}
+
+model WorkforcePosition {
+  id        String             @id @default(uuid())
+  name      String             @unique
+  isActive  Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  requests  WorkforceRequest[]
+  templates WorkforceRequestTemplate[]
+}
+
+model Vendor {
+  id           String             @id @default(uuid())
+  name         String             @unique
+  contactEmail String?
+  phone        String?
+  isApproved   Boolean            @default(true)
+  isActive     Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  selectedFor  WorkforceRequest[] @relation("SelectedVendor")
+  acceptedFor  WorkforceRequest[] @relation("AcceptedVendor")
+  invites      VendorInvite[]
+  invoices     VendorInvoice[]
+}
+
+model WorkforceApprovalRoute {
+  id           String     @id @default(uuid())
+  departmentId String     @unique
+  department   Department @relation(fields: [departmentId], references: [id])
+  name         String
+  steps        String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model DepartmentCasualBudget {
+  id           String     @id @default(uuid())
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  year         Int
+  month        Int
+  budgetAmount Float
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([departmentId, year, month])
+}
+
+model WorkforceSettings {
+  id                     String  @id @default("default")
+  hotelName              String  @default("HOTERRA")
+  hotelsJson             String  @default("[\"HOTERRA\"]")
+  minLeadHours           Int     @default(24)
+  estimatedHourlyRate    Float   @default(15)
+  estimatedHoursPerShift Float   @default(8)
+  notifyEmail            Boolean @default(true)
+  notifyPush             Boolean @default(true)
+  payrollTolerancePct    Float   @default(5)
+}
+
+model WorkforceRequest {
+  id                   String                 @id @default(uuid())
+  code                 String                 @unique
+  hotelName            String                 @default("HOTERRA")
+  departmentId         String
+  department           Department             @relation(fields: [departmentId], references: [id])
+  positionId           String
+  position             WorkforcePosition      @relation(fields: [positionId], references: [id])
+  workDate             DateTime
+  shift                WorkforceShift         @default(MORNING)
+  startTime            String?
+  endTime              String?
+  quantity             Int
+  comment              String?
+  vendorMode           WorkforceVendorMode    @default(DIRECT)
+  vendorId             String?
+  vendor               Vendor?                @relation("SelectedVendor", fields: [vendorId], references: [id])
+  acceptedVendorId     String?
+  acceptedVendor       Vendor?                @relation("AcceptedVendor", fields: [acceptedVendorId], references: [id])
+  broadcastVendorIds   String                 @default("[]")
+  status               WorkforceRequestStatus @default(PENDING)
+  currentStepIndex     Int                    @default(0)
+  approvalSteps        String                 @default("[]")
+  needsExtraApproval   Boolean                @default(false)
+  isUrgentOverride     Boolean                @default(false)
+  estimatedCost        Float?
+  createdById          String
+  createdBy            User                   @relation("WorkforceRequestCreator", fields: [createdById], references: [id])
+  actualQuantity       Int?
+  actualHours          Float?
+  actualCost           Float?
+  hodConfirmedAt       DateTime?
+  hodConfirmedById     String?
+  financeConfirmedAt   DateTime?
+  financeConfirmedById String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  events               WorkforceRequestEvent[]
+  invites              VendorInvite[]
+  invoices             VendorInvoice[]
+}
+
+model WorkforceRequestEvent {
+  id        String           @id @default(uuid())
+  requestId String
+  request   WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  action    String
+  details   String?
+  userId    String?
+  userName  String?
+  createdAt DateTime         @default(now())
+}
+
+model WorkforceRequestTemplate {
+  id              String              @id @default(uuid())
+  name            String
+  departmentId    String?
+  department      Department?         @relation(fields: [departmentId], references: [id])
+  positionId      String?
+  position        WorkforcePosition?  @relation(fields: [positionId], references: [id])
+  shift           WorkforceShift      @default(MORNING)
+  quantity        Int                 @default(1)
+  comment         String?
+  dayOfWeek       Int?
+  vendorMode      WorkforceVendorMode @default(DIRECT)
+  vendorId        String?
+  isActive        Boolean             @default(true)
+  isRecurring     Boolean             @default(false)
+  lastGeneratedAt DateTime?
+  hotelName       String?
+  createdAt       DateTime            @default(now())
+}
+
+model VendorInvite {
+  id          String           @id @default(uuid())
+  token       String           @unique
+  requestId   String
+  request     WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vendorId    String
+  vendor      Vendor           @relation(fields: [vendorId], references: [id])
+  status      String           @default("PENDING")
+  sentAt      DateTime         @default(now())
+  respondedAt DateTime?
+  expiresAt   DateTime
+}
+
+model VendorInvoice {
+  id            String           @id @default(uuid())
+  requestId     String
+  request       WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vendorId      String
+  vendor        Vendor           @relation(fields: [vendorId], references: [id])
+  invoiceNumber String
+  invoiceHours  Float
+  invoiceAmount Float
+  invoiceDate   DateTime         @default(now())
+  status        String           @default("PENDING")
+  matchedAt     DateTime?
+  notes         String?
+  createdAt     DateTime         @default(now())
+}
+
+model EmailOutbox {
+  id         String    @id @default(uuid())
+  toEmail    String
+  subject    String
+  body       String
+  entityType String?
+  entityId   String?
+  status     String    @default("QUEUED")
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
 }

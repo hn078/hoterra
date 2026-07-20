@@ -35,6 +35,31 @@ export function expectedSignerRole(status: DocumentStatus): Role | null {
   return map[status] ?? null;
 }
 
+export const PENDING_APPROVAL_STATUSES: DocumentStatus[] = [
+  DocumentStatus.IN_REVIEW,
+  DocumentStatus.SIGNED_HOD,
+  DocumentStatus.SIGNED_FINANCE,
+  DocumentStatus.SIGNED_GM,
+];
+
+export function statusAfterApproval(status: DocumentStatus): DocumentStatus | null {
+  const flow: Partial<Record<DocumentStatus, DocumentStatus>> = {
+    [DocumentStatus.DRAFT]: DocumentStatus.IN_REVIEW,
+    [DocumentStatus.IN_REVIEW]: DocumentStatus.SIGNED_HOD,
+    [DocumentStatus.SIGNED_HOD]: DocumentStatus.SIGNED_FINANCE,
+    [DocumentStatus.SIGNED_FINANCE]: DocumentStatus.SIGNED_GM,
+    [DocumentStatus.SIGNED_GM]: DocumentStatus.PUBLISHED,
+    [DocumentStatus.NEEDS_REVIEW]: DocumentStatus.IN_REVIEW,
+  };
+  return flow[status] ?? null;
+}
+
+export function canUserActOnApproval(userRole: Role, status: DocumentStatus): boolean {
+  const expected = expectedSignerRole(status);
+  if (!expected) return false;
+  return userRole === expected || userRole === Role.SYSTEM_ADMINISTRATOR;
+}
+
 export const DEFAULT_SIGNATURE_PLACEMENTS: SignaturePlacement[] = [
   {
     id: 'placement-hod',

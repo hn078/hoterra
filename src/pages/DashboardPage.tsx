@@ -91,7 +91,7 @@ export function DashboardPage() {
       />
 
       <div className="page-content">
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {CARD_CONFIG.map(({ key, label, icon, iconColor, iconBg, to }) => (
             <DashStatCard
               key={key}

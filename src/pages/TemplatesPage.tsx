@@ -139,8 +139,8 @@ export function TemplatesPage() {
         }
       />
 
-      <div className="page-stats">
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="page-stats page-stats--tabs">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <DashStatCard label="Total Templates" value={stats.total} icon={LayoutTemplate} iconColor="text-blue-600" iconBg="bg-blue-50" />
           <DashStatCard label="Active" value={stats.active} icon={CheckCircle} iconColor="text-green-600" iconBg="bg-green-50" />
           <DashStatCard label="Under Review" value={stats.underReview} icon={Clock} iconColor="text-orange-600" iconBg="bg-orange-50" />

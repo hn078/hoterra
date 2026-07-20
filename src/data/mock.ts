@@ -41,6 +41,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       Departments: [true, true, true, true, true, false, true],
       Workflows: [true, true, true, true, true, false, true],
       'Users & Roles': [true, true, true, true, true, true, true],
+      'Casual Workforce': [true, true, true, true, true, true, true],
       Reports: [true, false, true, false, true, true, false],
       Settings: [true, true, true, true, true, true, true],
     },
@@ -58,6 +59,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       Departments: [false, false, true, false, false, false, false],
       Workflows: [false, true, true, true, false, false, false],
       'Users & Roles': [false, false, true, false, false, false, false],
+      'Casual Workforce': [false, true, true, true, false, true, false],
       Reports: [false, false, true, false, true, false, false],
       Settings: [false, false, true, false, false, false, false],
     },
@@ -75,6 +77,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       Departments: [false, false, true, false, false, false, false],
       Workflows: [false, false, true, false, false, false, false],
       'Users & Roles': [false, false, false, false, false, false, false],
+      'Casual Workforce': [false, false, true, true, false, false, false],
       Reports: [false, false, true, false, false, false, false],
       Settings: [false, false, false, false, false, false, false],
     },
@@ -92,6 +95,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       Departments: [false, false, true, true, false, false, false],
       Workflows: [false, false, true, false, false, false, false],
       'Users & Roles': [false, false, true, false, false, false, false],
+      'Casual Workforce': [false, true, true, true, true, true, false],
       Reports: [false, false, true, false, true, false, false],
       Settings: [false, false, false, false, false, false, false],
     },
@@ -109,6 +113,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       Departments: [false, false, true, false, false, false, false],
       Workflows: [false, false, true, false, false, false, false],
       'Users & Roles': [false, false, false, false, false, false, false],
+      'Casual Workforce': [false, true, true, true, false, false, false],
       Reports: [false, false, false, false, false, false, false],
       Settings: [false, false, false, false, false, false, false],
     },
@@ -126,6 +131,7 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
       Departments: [false, false, true, false, false, false, false],
       Workflows: [false, false, true, false, false, false, false],
       'Users & Roles': [false, false, false, false, false, false, false],
+      'Casual Workforce': [false, false, true, false, false, false, false],
       Reports: [false, false, true, false, false, false, false],
       Settings: [false, false, false, false, false, false, false],
     },
@@ -256,14 +262,54 @@ export function mapAuditAction(action: string): { label: string; color: string; 
   const map: Record<string, { label: string; color: string; module: string; severity: string }> = {
     LOGIN: { label: 'Login Authentication', color: 'bg-blue-100 text-blue-700', module: 'System', severity: 'Low' },
     LOGOUT: { label: 'Logout', color: 'bg-gray-100 text-gray-700', module: 'System', severity: 'Low' },
+    VIEW: { label: 'Viewed Document', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
+    DOWNLOAD: { label: 'Downloaded Document', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
+    PRINT: { label: 'Printed Document', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
     CREATE: { label: 'Created Document', color: 'bg-green-100 text-green-700', module: 'Documents', severity: 'Medium' },
     UPDATE: { label: 'Updated Document', color: 'bg-blue-100 text-blue-700', module: 'Documents', severity: 'Medium' },
     DELETE: { label: 'Deleted Document', color: 'bg-red-100 text-red-700', module: 'Documents', severity: 'High' },
     PUBLISH: { label: 'Published Document', color: 'bg-green-100 text-green-700', module: 'Documents', severity: 'Medium' },
+    UNPUBLISH: { label: 'Unpublished Document', color: 'bg-amber-100 text-amber-700', module: 'Documents', severity: 'Medium' },
     APPROVE: { label: 'Approved Document', color: 'bg-green-100 text-green-700', module: 'My Approvals', severity: 'Medium' },
     REJECT: { label: 'Rejected Document', color: 'bg-red-100 text-red-700', module: 'My Approvals', severity: 'High' },
+    SUBMIT: { label: 'Submitted for Review', color: 'bg-blue-100 text-blue-700', module: 'My Approvals', severity: 'Medium' },
     SIGN: { label: 'Signed Document', color: 'bg-purple-100 text-purple-700', module: 'Documents', severity: 'Medium' },
     ARCHIVE: { label: 'Archived Document', color: 'bg-slate-100 text-slate-700', module: 'Archive', severity: 'Low' },
   };
   return map[action] || { label: action, color: 'bg-gray-100 text-gray-700', module: 'System', severity: 'Low' };
 }
+
+export const AUDIT_ACTION_OPTIONS = [
+  'LOGIN',
+  'LOGOUT',
+  'VIEW',
+  'DOWNLOAD',
+  'PRINT',
+  'CREATE',
+  'UPDATE',
+  'DELETE',
+  'SIGN',
+  'PUBLISH',
+  'UNPUBLISH',
+  'ARCHIVE',
+  'APPROVE',
+  'REJECT',
+  'SUBMIT',
+] as const;
+
+export const AUDIT_MODULE_OPTIONS = [
+  'System',
+  'Documents',
+  'My Approvals',
+  'Archive',
+  'Users & Roles',
+] as const;
+
+export const AUDIT_ENTITY_TYPE_OPTIONS = [
+  'Document',
+  'Template',
+  'User',
+  'Department',
+  'Workflow',
+  'System',
+] as const;

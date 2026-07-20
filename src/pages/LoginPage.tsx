@@ -9,7 +9,7 @@ import {
   User,
   FileText,
   Shield,
-  Clock,
+  Briefcase,
   BarChart3,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
@@ -17,7 +17,7 @@ import { useAuthStore } from '@/store/auth';
 const FEATURES = [
   { icon: FileText, color: 'text-hoterra-gold', title: 'Centralized Documents', desc: 'All your documents in one secure place' },
   { icon: Shield, color: 'text-blue-400', title: 'Workflow Automation', desc: 'Streamlined approvals and processes' },
-  { icon: Clock, color: 'text-green-400', title: 'Real-time Access', desc: 'Access up-to-date documents anytime, anywhere' },
+  { icon: Briefcase, color: 'text-green-400', title: 'Casual Workforce', desc: 'Request, approve, and track temporary staff' },
   { icon: BarChart3, color: 'text-purple-400', title: 'Insights & Reporting', desc: 'Powerful analytics for better decisions' },
 ];
 

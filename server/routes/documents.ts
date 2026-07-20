@@ -5,15 +5,62 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentStatus, Prisma, Role, AuditAction, DocumentPriority } from '@prisma/client';
 import { prisma } from '../db';
-import { authMiddleware, canViewAllDocuments } from '../middleware/auth';
+import { authMiddleware, canViewAllDocuments, canViewDocument } from '../middleware/auth';
 import { routeParam } from '../utils';
 import {
   expectedSignerRole,
   parseSignaturePlacements,
   serializeSignaturePlacements,
   DEFAULT_SIGNATURE_PLACEMENTS,
+  PENDING_APPROVAL_STATUSES,
+  statusAfterApproval,
+  canUserActOnApproval,
 } from '../lib/signatures';
 import { getUploadsDir } from '../lib/paths';
+import { resolveUploadPath, saveBase64Upload, UploadTooLargeError } from '../lib/uploads';
+import { formatWorkflow } from '../lib/workflows';
+
+const attachedDocumentSelect = {
+  select: { id: true, title: true, code: true, status: true },
+} as const;
+
+const commentInclude = {
+  user: { select: { id: true, firstName: true, lastName: true } },
+  attachedDocument: attachedDocumentSelect,
+} satisfies Prisma.DocumentCommentInclude;
+
+function formatComment(
+  comment: Prisma.DocumentCommentGetPayload<{ include: typeof commentInclude }>
+) {
+  const fileAttachment =
+    comment.attachmentFileName && comment.attachmentFilePath
+      ? {
+          fileName: comment.attachmentFileName,
+          fileSize: comment.attachmentFileSize ?? 0,
+          fileType: comment.attachmentFileType ?? null,
+          downloadUrl: `/documents/${comment.documentId}/comments/${comment.id}/attachment`,
+        }
+      : null;
+
+  return {
+    id: comment.id,
+    documentId: comment.documentId,
+    userId: comment.userId,
+    user: comment.user,
+    text: comment.text,
+    status: comment.status,
+    createdAt: comment.createdAt,
+    attachedDocument: comment.attachedDocument
+      ? {
+          id: comment.attachedDocument.id,
+          title: comment.attachedDocument.title,
+          code: comment.attachedDocument.code,
+          status: comment.attachedDocument.status,
+        }
+      : null,
+    fileAttachment,
+  };
+}
 
 const router = Router();
 
@@ -134,13 +181,18 @@ router.get('/approvals', authMiddleware, async (req: Request, res: Response) => 
     prisma.document.count({ where }),
   ]);
 
+  const countBase: Prisma.DocumentWhereInput = {};
+  if (!canViewAllDocuments(req.user!.role)) {
+    countBase.departmentId = req.user!.departmentId ?? undefined;
+  }
+
   const counts = await Promise.all([
-    prisma.document.count({ where: { status: { in: pendingStatuses } } }),
-    prisma.document.count({ where: { status: DocumentStatus.PUBLISHED } }),
-    prisma.document.count({ where: { status: DocumentStatus.REJECTED } }),
-    prisma.document.count({ where: { status: DocumentStatus.NEEDS_REVIEW } }),
+    prisma.document.count({ where: { ...countBase, status: { in: pendingStatuses } } }),
+    prisma.document.count({ where: { ...countBase, status: DocumentStatus.PUBLISHED } }),
+    prisma.document.count({ where: { ...countBase, status: DocumentStatus.REJECTED } }),
+    prisma.document.count({ where: { ...countBase, status: DocumentStatus.NEEDS_REVIEW } }),
     prisma.document.count({
-      where: { status: { in: [DocumentStatus.PUBLISHED, DocumentStatus.ARCHIVED] } },
+      where: { ...countBase, status: { in: [DocumentStatus.PUBLISHED, DocumentStatus.ARCHIVED] } },
     }),
   ]);
 
@@ -371,7 +423,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
       },
       versions: { orderBy: { createdAt: 'desc' } },
       comments: {
-        include: { user: { select: { id: true, firstName: true, lastName: true } } },
+        include: commentInclude,
         orderBy: { createdAt: 'desc' },
       },
       attachments: { orderBy: { createdAt: 'desc' } },
@@ -390,7 +442,12 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  res.json({ ...document, tags: parseTags(document.tags) });
+  res.json({
+    ...document,
+    tags: parseTags(document.tags),
+    comments: document.comments.map(formatComment),
+    workflow: document.workflow ? formatWorkflow(document.workflow) : null,
+  });
 });
 
 router.get('/:id/related', authMiddleware, async (req: Request, res: Response) => {
@@ -670,8 +727,22 @@ router.post('/:id/approve', authMiddleware, async (req: Request, res: Response) 
     comment?: string;
   };
 
+  const user = req.user!;
   const doc = await prisma.document.findUnique({ where: { id } });
   if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+  if (!PENDING_APPROVAL_STATUSES.includes(doc.status)) {
+    return res.status(400).json({ error: 'Document is not awaiting approval at this step' });
+  }
+
+  if (!canUserActOnApproval(user.role, doc.status)) {
+    const expected = expectedSignerRole(doc.status);
+    return res.status(403).json({
+      error: expected
+        ? `This document requires action from ${ROLE_LABEL(expected)}`
+        : 'You are not authorized to act on this document at the current step',
+    });
+  }
 
   let newStatus: DocumentStatus;
   let historyAction: string;
@@ -683,67 +754,114 @@ router.post('/:id/approve', authMiddleware, async (req: Request, res: Response) 
     newStatus = DocumentStatus.NEEDS_REVIEW;
     historyAction = 'Returned for changes';
   } else {
-    const flow: Partial<Record<DocumentStatus, DocumentStatus>> = {
-      [DocumentStatus.DRAFT]: DocumentStatus.IN_REVIEW,
-      [DocumentStatus.IN_REVIEW]: DocumentStatus.SIGNED_HOD,
-      [DocumentStatus.SIGNED_HOD]: DocumentStatus.SIGNED_FINANCE,
-      [DocumentStatus.SIGNED_FINANCE]: DocumentStatus.SIGNED_GM,
-      [DocumentStatus.SIGNED_GM]: DocumentStatus.PUBLISHED,
-      [DocumentStatus.NEEDS_REVIEW]: DocumentStatus.IN_REVIEW,
-    };
-    newStatus = flow[doc.status] ?? DocumentStatus.PUBLISHED;
+    const nextStatus = statusAfterApproval(doc.status);
+    if (!nextStatus) {
+      return res.status(400).json({ error: 'Document is not awaiting approval at this step' });
+    }
+    newStatus = nextStatus;
     historyAction = 'Approved';
   }
 
-  const updated = await prisma.document.update({
-    where: { id },
-    data: {
-      status: newStatus,
-      ...(newStatus === DocumentStatus.PUBLISHED ? { isLocked: true } : {}),
-    },
-    include: {
-      department: true,
-      author: { select: { id: true, firstName: true, lastName: true } },
-    },
-  });
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const current = await tx.document.findUnique({ where: { id } });
+      if (!current) throw new Error('NOT_FOUND');
 
-  await prisma.documentHistory.create({
-    data: {
-      documentId: id,
-      action: historyAction,
-      details: comment || undefined,
-      userId: req.user!.id,
-      userName: `${req.user!.firstName} ${req.user!.lastName}`,
-    },
-  });
+      if (!PENDING_APPROVAL_STATUSES.includes(current.status)) {
+        throw new Error('INVALID_STATE');
+      }
 
-  await prisma.auditLog.create({
-    data: {
-      userId: req.user!.id,
-      userName: `${req.user!.firstName} ${req.user!.lastName}`,
-      action:
-        action === 'reject' || action === 'request_changes'
-          ? AuditAction.REJECT
-          : AuditAction.APPROVE,
-      entityType: 'Document',
-      entityId: id,
-      details: `${historyAction}: ${doc.title}${comment ? ` — ${comment}` : ''}`,
-    },
-  });
+      if (!canUserActOnApproval(user.role, current.status)) {
+        throw new Error('FORBIDDEN');
+      }
 
-  if (doc.authorId !== req.user!.id) {
-    await prisma.notification.create({
-      data: {
-        userId: doc.authorId,
-        title: `Document ${historyAction.toLowerCase()}`,
-        message: `"${doc.title}" was ${historyAction.toLowerCase()} by ${req.user!.firstName} ${req.user!.lastName}`,
-        type: 'document',
-        link: `/documents/${id}`,
-      },
+      if (action === 'approve') {
+        const nextStatus = statusAfterApproval(current.status);
+        if (!nextStatus) throw new Error('INVALID_STATE');
+        newStatus = nextStatus;
+      }
+
+      const result = await tx.document.updateMany({
+        where: { id, status: current.status },
+        data: {
+          status: newStatus,
+          ...(newStatus === DocumentStatus.PUBLISHED ? { isLocked: true } : {}),
+        },
+      });
+
+      if (result.count === 0) {
+        throw new Error('CONFLICT');
+      }
+
+      await tx.documentHistory.create({
+        data: {
+          documentId: id,
+          action: historyAction,
+          details: comment || undefined,
+          userId: user.id,
+          userName: `${user.firstName} ${user.lastName}`,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          userName: `${user.firstName} ${user.lastName}`,
+          action:
+            action === 'reject' || action === 'request_changes'
+              ? AuditAction.REJECT
+              : AuditAction.APPROVE,
+          entityType: 'Document',
+          entityId: id,
+          details: `${historyAction}: ${current.title}${comment ? ` — ${comment}` : ''}`,
+        },
+      });
+
+      return tx.document.findUnique({
+        where: { id },
+        include: {
+          department: true,
+          author: { select: { id: true, firstName: true, lastName: true } },
+        },
+      });
     });
-  }
 
-  res.json({ ...updated, tags: parseTags(updated.tags) });
+    if (!updated) return res.status(404).json({ error: 'Document not found' });
+
+    if (doc.authorId !== user.id) {
+      await prisma.notification.create({
+        data: {
+          userId: doc.authorId,
+          title: `Document ${historyAction.toLowerCase()}`,
+          message: `"${doc.title}" was ${historyAction.toLowerCase()} by ${user.firstName} ${user.lastName}`,
+          type: 'document',
+          link: `/documents/${id}`,
+        },
+      });
+    }
+
+    res.json({ ...updated, tags: parseTags(updated.tags) });
+  } catch (err) {
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'CONFLICT') {
+      return res.status(409).json({ error: 'This approval step was already completed' });
+    }
+    if (code === 'FORBIDDEN') {
+      const expected = expectedSignerRole(doc.status);
+      return res.status(403).json({
+        error: expected
+          ? `This document requires action from ${ROLE_LABEL(expected)}`
+          : 'You are not authorized to act on this document at the current step',
+      });
+    }
+    if (code === 'INVALID_STATE') {
+      return res.status(400).json({ error: 'Document is not awaiting approval at this step' });
+    }
+    if (code === 'NOT_FOUND') {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    throw err;
+  }
 });
 
 router.post('/:id/restore', authMiddleware, async (req: Request, res: Response) => {
@@ -818,26 +936,104 @@ router.get('/:id/comments', authMiddleware, async (req: Request, res: Response) 
   const id = routeParam(req.params.id);
   const comments = await prisma.documentComment.findMany({
     where: { documentId: id },
-    include: { user: { select: { id: true, firstName: true, lastName: true } } },
+    include: commentInclude,
     orderBy: { createdAt: 'desc' },
   });
-  res.json(comments);
+  res.json(comments.map(formatComment));
 });
 
 router.post('/:id/comments', authMiddleware, async (req: Request, res: Response) => {
   const id = routeParam(req.params.id);
-  const { text } = req.body;
-  if (!text?.trim()) return res.status(400).json({ error: 'Comment text required' });
+  const { text, attachedDocumentId, file } = req.body as {
+    text?: string;
+    attachedDocumentId?: string;
+    file?: { fileName: string; fileType?: string; data: string };
+  };
+
+  const trimmed = text?.trim() ?? '';
+  if (!trimmed && !attachedDocumentId && !file) {
+    return res.status(400).json({ error: 'Comment text, document, or file attachment is required' });
+  }
+
+  if (attachedDocumentId && file) {
+    return res.status(400).json({ error: 'Cannot attach both a document reference and a file' });
+  }
+
+  const doc = await prisma.document.findUnique({ where: { id } });
+  if (!doc || !canViewDocument(req.user!, doc)) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+
+  if (attachedDocumentId) {
+    const attached = await prisma.document.findUnique({ where: { id: attachedDocumentId } });
+    if (!attached || !canViewDocument(req.user!, attached)) {
+      return res.status(403).json({ error: 'Attached document not found or not accessible' });
+    }
+  }
+
+  let fileFields: {
+    attachmentFileName: string;
+    attachmentFilePath: string;
+    attachmentFileSize: number;
+    attachmentFileType: string;
+  } | undefined;
+
+  if (file) {
+    if (!file.fileName || !file.data) {
+      return res.status(400).json({ error: 'fileName and data are required for file upload' });
+    }
+    try {
+      const saved = saveBase64Upload(file.fileName, file.data, file.fileType, 'comments');
+      fileFields = {
+        attachmentFileName: saved.fileName,
+        attachmentFilePath: saved.filePath,
+        attachmentFileSize: saved.fileSize,
+        attachmentFileType: saved.fileType,
+      };
+    } catch (err) {
+      if (err instanceof UploadTooLargeError) {
+        return res.status(400).json({ error: err.message });
+      }
+      throw err;
+    }
+  }
 
   const comment = await prisma.documentComment.create({
     data: {
       documentId: id,
       userId: req.user!.id,
-      text: text.trim(),
+      text: trimmed,
+      ...(attachedDocumentId ? { attachedDocumentId } : {}),
+      ...(fileFields ?? {}),
     },
-    include: { user: { select: { id: true, firstName: true, lastName: true } } },
+    include: commentInclude,
   });
-  res.status(201).json(comment);
+  res.status(201).json(formatComment(comment));
+});
+
+router.get('/:id/comments/:commentId/attachment', authMiddleware, async (req: Request, res: Response) => {
+  const documentId = routeParam(req.params.id);
+  const commentId = routeParam(req.params.commentId);
+
+  const comment = await prisma.documentComment.findUnique({ where: { id: commentId } });
+  if (!comment || comment.documentId !== documentId) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+  if (!comment.attachmentFilePath || !comment.attachmentFileName) {
+    return res.status(404).json({ error: 'No file attachment' });
+  }
+
+  const doc = await prisma.document.findUnique({ where: { id: documentId } });
+  if (!doc || !canViewDocument(req.user!, doc)) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+
+  const absolutePath = resolveUploadPath(comment.attachmentFilePath);
+  if (!fs.existsSync(absolutePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  res.download(absolutePath, comment.attachmentFileName);
 });
 
 router.patch('/:id/comments/:commentId', authMiddleware, async (req: Request, res: Response) => {
@@ -845,9 +1041,9 @@ router.patch('/:id/comments/:commentId', authMiddleware, async (req: Request, re
   const comment = await prisma.documentComment.update({
     where: { id: routeParam(req.params.commentId) },
     data: { status },
-    include: { user: { select: { id: true, firstName: true, lastName: true } } },
+    include: commentInclude,
   });
-  res.json(comment);
+  res.json(formatComment(comment));
 });
 
 router.post('/:id/upload', authMiddleware, async (req: Request, res: Response) => {

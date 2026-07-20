@@ -8,6 +8,8 @@ Full audit of UI actions, API wiring, navigation, and design alignment against `
 
 **Deferred (external only):** Actual Microsoft/Google/Opera PMS/AD connection — toggles and config save in Settings → Integrations; SSO buttons show enable instructions.
 
+**Этап 6:** Casual Workforce Management — requests, multi-hotel, dept route editor, budget/urgency, vendor email + magic-link portal, recurring templates, payroll match, email outbox, CSV export, HOD/Finance completion. Spec: [`CASUAL_WORKFORCE.md`](CASUAL_WORKFORCE.md).
+
 ---
 
 ## Database-backed features

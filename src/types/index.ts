@@ -50,6 +50,8 @@ export interface DocumentComment {
   status: string;
   createdAt: string;
   user: { id: string; firstName: string; lastName: string };
+  attachedDocument?: ChatMessageDocument | null;
+  fileAttachment?: ChatMessageFileAttachment | null;
 }
 
 export interface DocumentAttachment {
@@ -131,6 +133,7 @@ export interface Document {
 export interface DocumentHistory {
   id: string;
   action: string;
+  userId?: string | null;
   userName?: string | null;
   createdAt: string;
 }
@@ -174,6 +177,49 @@ export interface Notification {
   createdAt: string;
 }
 
+export type ConversationType = 'DIRECT' | 'DEPARTMENT' | 'HOTEL';
+
+export interface Conversation {
+  id: string;
+  type: ConversationType;
+  name: string;
+  departmentId?: string | null;
+  department?: Pick<Department, 'id' | 'name' | 'color' | 'code'> | null;
+  otherUser?: Pick<User, 'id' | 'firstName' | 'lastName'>;
+  lastMessage?: {
+    content: string;
+    createdAt: string;
+    senderName: string;
+  } | null;
+  unreadCount: number;
+  updatedAt: string;
+}
+
+export interface ChatMessageDocument {
+  id: string;
+  title: string;
+  code: string;
+  status: DocumentStatus;
+}
+
+export interface ChatMessageFileAttachment {
+  fileName: string;
+  fileSize: number;
+  fileType?: string | null;
+  downloadUrl: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  sender: Pick<User, 'id' | 'firstName' | 'lastName'>;
+  content: string;
+  document?: ChatMessageDocument | null;
+  fileAttachment?: ChatMessageFileAttachment | null;
+  createdAt: string;
+}
+
 export interface AuditLog {
   id: string;
   userId?: string | null;
@@ -190,8 +236,11 @@ export interface WorkflowItem {
   id: string;
   name: string;
   description?: string | null;
-  steps: string[];
+  steps: import('@/lib/workflows').WorkflowStep[];
+  stepCount?: number;
+  stepsSummary?: string;
   isDefault: boolean;
+  status: import('@/lib/workflows').WorkflowStatus;
   createdAt?: string;
 }
 
@@ -295,4 +344,220 @@ export const ROLE_LABELS: Record<Role, string> = {
   FINANCE_DIRECTOR: 'Finance Director',
   GENERAL_MANAGER: 'General Manager',
   SYSTEM_ADMINISTRATOR: 'System Administrator',
+};
+
+export type WorkforceRequestStatus =
+  | 'PENDING'
+  | 'AWAITING_EXTRA_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'SENT_TO_VENDOR'
+  | 'VENDOR_ACCEPTED'
+  | 'VENDOR_DECLINED'
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+export type WorkforceShift = 'MORNING' | 'EVENING' | 'NIGHT' | 'CUSTOM';
+export type WorkforceVendorMode = 'DIRECT' | 'BROADCAST';
+
+export interface WorkforceApprovalStep {
+  role: Role;
+  label: string;
+}
+
+export interface WorkforcePosition {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  contactEmail?: string | null;
+  phone?: string | null;
+  isApproved: boolean;
+  isActive: boolean;
+}
+
+export interface WorkforceRequestEvent {
+  id: string;
+  action: string;
+  details?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  createdAt: string;
+}
+
+export interface WorkforceRequest {
+  id: string;
+  code: string;
+  hotelName: string;
+  departmentId: string;
+  department: Department;
+  positionId: string;
+  position: WorkforcePosition;
+  workDate: string;
+  shift: WorkforceShift;
+  startTime?: string | null;
+  endTime?: string | null;
+  quantity: number;
+  comment?: string | null;
+  vendorMode: WorkforceVendorMode;
+  vendorId?: string | null;
+  vendor?: Vendor | null;
+  acceptedVendorId?: string | null;
+  acceptedVendor?: Vendor | null;
+  broadcastVendorIds: string[];
+  status: WorkforceRequestStatus;
+  currentStepIndex: number;
+  approvalSteps: WorkforceApprovalStep[];
+  needsExtraApproval: boolean;
+  isUrgentOverride: boolean;
+  estimatedCost?: number | null;
+  createdBy: { id: string; firstName: string; lastName: string; email: string; role: Role };
+  actualQuantity?: number | null;
+  actualHours?: number | null;
+  actualCost?: number | null;
+  hodConfirmedAt?: string | null;
+  financeConfirmedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events: WorkforceRequestEvent[];
+  invites?: VendorInvite[];
+  invoices?: VendorInvoice[];
+  canApprove?: boolean;
+  canManage?: boolean;
+}
+
+export interface VendorInvite {
+  id: string;
+  token: string;
+  vendorId: string;
+  vendor: Vendor;
+  status: string;
+  sentAt: string;
+  respondedAt?: string | null;
+  expiresAt: string;
+  portalPath: string;
+}
+
+export interface VendorInvoice {
+  id: string;
+  vendorId: string;
+  vendor: Vendor;
+  invoiceNumber: string;
+  invoiceHours: number;
+  invoiceAmount: number;
+  invoiceDate: string;
+  status: string;
+  matchedAt?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  request?: WorkforceRequest;
+}
+
+export interface WorkforceMeta {
+  positions: WorkforcePosition[];
+  vendors: Vendor[];
+  settings: {
+    id: string;
+    hotelName: string;
+    hotels: string[];
+    minLeadHours: number;
+    estimatedHourlyRate: number;
+    estimatedHoursPerShift: number;
+    notifyEmail: boolean;
+    notifyPush: boolean;
+    payrollTolerancePct: number;
+  };
+  routes: {
+    id: string;
+    departmentId: string;
+    name: string;
+    steps: WorkforceApprovalStep[];
+    department: Department;
+  }[];
+  budgets: {
+    id: string;
+    departmentId: string;
+    year: number;
+    month: number;
+    budgetAmount: number;
+    department: Department;
+  }[];
+  templates: {
+    id: string;
+    name: string;
+    departmentId?: string | null;
+    positionId?: string | null;
+    shift: WorkforceShift;
+    quantity: number;
+    comment?: string | null;
+    dayOfWeek?: number | null;
+    vendorMode: WorkforceVendorMode;
+    vendorId?: string | null;
+    isRecurring?: boolean;
+    hotelName?: string | null;
+    lastGeneratedAt?: string | null;
+    department?: Department | null;
+    position?: WorkforcePosition | null;
+  }[];
+  defaultPositions: string[];
+  approvalRoles?: Role[];
+}
+
+export interface WorkforceReport {
+  year: number;
+  month: number;
+  summary: {
+    totalRequests: number;
+    activeRequests: number;
+    completedRequests: number;
+    totalCost: number;
+    totalHours: number;
+    totalHeadcount: number;
+  };
+  byDepartment: { name: string; requests: number; cost: number; hours: number }[];
+  byVendor: { name: string; requests: number; cost: number }[];
+  byPosition: { name: string; requests: number; quantity: number; cost: number }[];
+  byHotel: { name: string; requests: number; cost: number; hours: number }[];
+  budgetVsActual: {
+    departmentId: string;
+    department: string;
+    budget: number;
+    actual: number;
+    variance: number;
+  }[];
+}
+
+export const WORKFORCE_STATUS_LABELS: Record<WorkforceRequestStatus, string> = {
+  PENDING: 'Pending',
+  AWAITING_EXTRA_APPROVAL: 'Extra Approval',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  SENT_TO_VENDOR: 'Sent to Vendor',
+  VENDOR_ACCEPTED: 'Vendor Accepted',
+  VENDOR_DECLINED: 'Vendor Declined',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+export const WORKFORCE_STATUS_COLORS: Record<WorkforceRequestStatus, string> = {
+  PENDING: 'bg-orange-100 text-orange-700 border-orange-300',
+  AWAITING_EXTRA_APPROVAL: 'bg-amber-100 text-amber-800 border-amber-300',
+  APPROVED: 'bg-blue-100 text-blue-700 border-blue-300',
+  REJECTED: 'bg-red-100 text-red-700 border-red-300',
+  SENT_TO_VENDOR: 'bg-indigo-100 text-indigo-700 border-indigo-300',
+  VENDOR_ACCEPTED: 'bg-cyan-100 text-cyan-700 border-cyan-300',
+  VENDOR_DECLINED: 'bg-rose-100 text-rose-700 border-rose-300',
+  COMPLETED: 'bg-green-100 text-green-700 border-green-300',
+  CANCELLED: 'bg-slate-100 text-slate-600 border-slate-300',
+};
+
+export const WORKFORCE_SHIFT_LABELS: Record<WorkforceShift, string> = {
+  MORNING: 'Morning',
+  EVENING: 'Evening',
+  NIGHT: 'Night',
+  CUSTOM: 'Custom',
 };

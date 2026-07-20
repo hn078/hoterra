@@ -25,5 +25,8 @@ Reference UI mockups for all application screens. Source: `hoterra-page-designs`
 | `search.png` | Global search | `/search` |
 | `settings-admin.png` | Settings (admin) | `/settings` |
 | `settings-user.png` | Settings (user prefs) | `/settings` (user tab) |
+| — | Casual Workforce list | `/workforce` |
+| — | Casual Workforce request detail | `/workforce/:id` |
 
 E-signature logic and external integrations are deferred to a later phase.
+Casual Workforce v1 is implemented without PNG mockups yet.

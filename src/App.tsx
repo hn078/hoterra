@@ -23,6 +23,10 @@ import { RolesPermissionsPage } from '@/pages/RolesPermissionsPage';
 import { ArchivePage } from '@/pages/ArchivePage';
 import { AuditLogPage } from '@/pages/AuditLogPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
+import { MessagesPage } from '@/pages/MessagesPage';
+import { WorkforcePage } from '@/pages/WorkforcePage';
+import { WorkforceRequestPage } from '@/pages/WorkforceRequestPage';
+import { VendorPortalPage } from '@/pages/VendorPortalPage';
 import { useAuthStore } from '@/store/auth';
 
 const isFileProtocol =
@@ -42,6 +46,7 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/vendor/order/:token" element={<VendorPortalPage />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
@@ -65,6 +70,9 @@ export default function App() {
           <Route path="/archive" element={<ArchivePage />} />
           <Route path="/audit" element={<AuditLogPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/workforce" element={<WorkforcePage />} />
+          <Route path="/workforce/:id" element={<WorkforceRequestPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

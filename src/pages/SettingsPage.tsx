@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { DashStatCard } from '@/components/ui/DashStatCard';
+import { SwitchRow } from '@/components/ui/Switch';
 import { api } from '@/lib/api';
 import type { AuditLog, SystemSettings } from '@/types';
 import { formatDateTime } from '@/lib/utils';
@@ -298,10 +299,10 @@ export function SettingsPage() {
                 </SettingsField>
               </SettingsSection>
               <SettingsSection title="Document Parameters">
-                <Toggle label="Enable versioning" checked={settings.enableVersioning} onChange={(v) => update('enableVersioning', v)} />
-                <Toggle label="Mandatory next review date" checked={settings.mandatoryReviewDate} onChange={(v) => update('mandatoryReviewDate', v)} />
-                <Toggle label="Require document description" checked={settings.requireDescription} onChange={(v) => update('requireDescription', v)} />
-                <Toggle label="Allow downloading" checked={settings.allowDownload} onChange={(v) => update('allowDownload', v)} />
+                <SwitchRow label="Enable versioning" checked={settings.enableVersioning} onChange={(v) => update('enableVersioning', v)} />
+                <SwitchRow label="Mandatory next review date" checked={settings.mandatoryReviewDate} onChange={(v) => update('mandatoryReviewDate', v)} />
+                <SwitchRow label="Require document description" checked={settings.requireDescription} onChange={(v) => update('requireDescription', v)} />
+                <SwitchRow label="Allow downloading" checked={settings.allowDownload} onChange={(v) => update('allowDownload', v)} />
               </SettingsSection>
               <SettingsSection title="System Parameters">
                 <SettingsField label="Auto logout on inactivity">
@@ -318,9 +319,9 @@ export function SettingsPage() {
                     <option value={50}>50</option>
                   </select>
                 </SettingsField>
-                <Toggle label="Two-factor authentication" checked={settings.enable2FA} onChange={(v) => update('enable2FA', v)} />
-                <Toggle label="Allow comments" checked={settings.allowComments} onChange={(v) => update('allowComments', v)} />
-                <Toggle label="Show tooltips" checked={settings.showTooltips} onChange={(v) => update('showTooltips', v)} />
+                <SwitchRow label="Two-factor authentication" checked={settings.enable2FA} onChange={(v) => update('enable2FA', v)} />
+                <SwitchRow label="Allow comments" checked={settings.allowComments} onChange={(v) => update('allowComments', v)} />
+                <SwitchRow label="Show tooltips" checked={settings.showTooltips} onChange={(v) => update('showTooltips', v)} />
               </SettingsSection>
             </>
           )}
@@ -340,8 +341,8 @@ export function SettingsPage() {
               <SettingsField label="Session Timeout (minutes)">
                 <input type="number" value={Number(security.sessionTimeoutMinutes ?? 30)} onChange={(e) => updateExt('security', 'sessionTimeoutMinutes', parseInt(e.target.value))} className="input" />
               </SettingsField>
-              <Toggle label="Enable 2FA" checked={Boolean(security.enable2FA ?? settings.enable2FA)} onChange={(v) => updateExt('security', 'enable2FA', v)} />
-              <Toggle label="Allow user self-registration" checked={Boolean(security.allowUserRegistration ?? false)} onChange={(v) => updateExt('security', 'allowUserRegistration', v)} />
+              <SwitchRow label="Enable 2FA" checked={Boolean(security.enable2FA ?? settings.enable2FA)} onChange={(v) => updateExt('security', 'enable2FA', v)} />
+              <SwitchRow label="Allow user self-registration" checked={Boolean(security.allowUserRegistration ?? false)} onChange={(v) => updateExt('security', 'allowUserRegistration', v)} />
               <SettingsField label="IP Restrictions">
                 <textarea
                   value={Array.isArray(security.ipRestrictions) ? (security.ipRestrictions as string[]).join('\n') : ''}
@@ -356,21 +357,21 @@ export function SettingsPage() {
 
           {activeCategory === 'signatures' && (
             <SettingsSection title="Digital Signatures">
-              <Toggle label="Require PIN for signing" checked={Boolean(signatures.requirePin ?? true)} onChange={(v) => updateExt('signatures', 'requirePin', v)} />
+              <SwitchRow label="Require PIN for signing" checked={Boolean(signatures.requirePin ?? true)} onChange={(v) => updateExt('signatures', 'requirePin', v)} />
               <SettingsField label="Hash Algorithm">
                 <select value={String(signatures.hashAlgorithm ?? 'SHA-256')} onChange={(e) => updateExt('signatures', 'hashAlgorithm', e.target.value)} className="input">
                   <option value="SHA-256">SHA-256</option>
                   <option value="SHA-512">SHA-512</option>
                 </select>
               </SettingsField>
-              <Toggle label="Require witness" checked={Boolean(signatures.requireWitness ?? false)} onChange={(v) => updateExt('signatures', 'requireWitness', v)} />
-              <Toggle label="Auto timestamp" checked={Boolean(signatures.autoTimestamp ?? true)} onChange={(v) => updateExt('signatures', 'autoTimestamp', v)} />
+              <SwitchRow label="Require witness" checked={Boolean(signatures.requireWitness ?? false)} onChange={(v) => updateExt('signatures', 'requireWitness', v)} />
+              <SwitchRow label="Auto timestamp" checked={Boolean(signatures.autoTimestamp ?? true)} onChange={(v) => updateExt('signatures', 'autoTimestamp', v)} />
             </SettingsSection>
           )}
 
           {activeCategory === 'numbering' && (
             <SettingsSection title="Document Numbering">
-              <Toggle label="Auto-generate document codes" checked={Boolean(numbering.autoGenerate ?? true)} onChange={(v) => updateExt('numbering', 'autoGenerate', v)} />
+              <SwitchRow label="Auto-generate document codes" checked={Boolean(numbering.autoGenerate ?? true)} onChange={(v) => updateExt('numbering', 'autoGenerate', v)} />
               <SettingsField label="Prefix Pattern">
                 <input value={String(numbering.prefixPattern ?? '{DEPT}-{CAT}')} onChange={(e) => updateExt('numbering', 'prefixPattern', e.target.value)} className="input font-mono" />
               </SettingsField>
@@ -380,15 +381,15 @@ export function SettingsPage() {
               <SettingsField label="Sequence Padding">
                 <input type="number" value={Number(numbering.padding ?? 3)} onChange={(e) => updateExt('numbering', 'padding', parseInt(e.target.value))} className="input w-24" />
               </SettingsField>
-              <Toggle label="Reset sequence yearly" checked={Boolean(numbering.resetYearly ?? false)} onChange={(v) => updateExt('numbering', 'resetYearly', v)} />
+              <SwitchRow label="Reset sequence yearly" checked={Boolean(numbering.resetYearly ?? false)} onChange={(v) => updateExt('numbering', 'resetYearly', v)} />
             </SettingsSection>
           )}
 
           {activeCategory === 'notifications' && (
             <SettingsSection title="Notification Preferences">
-              <Toggle label="Email notifications" checked={settings.notifyEmail ?? true} onChange={(v) => update('notifyEmail', v)} />
-              <Toggle label="Push notifications" checked={settings.notifyPush ?? true} onChange={(v) => update('notifyPush', v)} />
-              <Toggle label="In-app notifications" checked={settings.notifyInApp ?? true} onChange={(v) => update('notifyInApp', v)} />
+              <SwitchRow label="Email notifications" checked={settings.notifyEmail ?? true} onChange={(v) => update('notifyEmail', v)} />
+              <SwitchRow label="Push notifications" checked={settings.notifyPush ?? true} onChange={(v) => update('notifyPush', v)} />
+              <SwitchRow label="In-app notifications" checked={settings.notifyInApp ?? true} onChange={(v) => update('notifyInApp', v)} />
             </SettingsSection>
           )}
 
@@ -422,7 +423,7 @@ export function SettingsPage() {
 
           {activeCategory === 'email' && (
             <SettingsSection title="SMTP Configuration">
-              <Toggle label="Enable email delivery" checked={Boolean(emailCfg.enabled ?? false)} onChange={(v) => updateExt('email', 'enabled', v)} />
+              <SwitchRow label="Enable email delivery" checked={Boolean(emailCfg.enabled ?? false)} onChange={(v) => updateExt('email', 'enabled', v)} />
               <SettingsField label="SMTP Host">
                 <input value={String(emailCfg.smtpHost ?? '')} onChange={(e) => updateExt('email', 'smtpHost', e.target.value)} className="input" />
               </SettingsField>
@@ -435,7 +436,7 @@ export function SettingsPage() {
               <SettingsField label="From Name">
                 <input value={String(emailCfg.fromName ?? '')} onChange={(e) => updateExt('email', 'fromName', e.target.value)} className="input" />
               </SettingsField>
-              <Toggle label="Use TLS" checked={Boolean(emailCfg.useTls ?? true)} onChange={(v) => updateExt('email', 'useTls', v)} />
+              <SwitchRow label="Use TLS" checked={Boolean(emailCfg.useTls ?? true)} onChange={(v) => updateExt('email', 'useTls', v)} />
             </SettingsSection>
           )}
 
@@ -450,7 +451,7 @@ export function SettingsPage() {
                 };
                 return (
                   <div key={key} className="rounded-lg border border-gray-100 p-4">
-                    <Toggle
+                    <SwitchRow
                       label={labels[key]}
                       checked={Boolean(cfg.enabled ?? false)}
                       onChange={(v) => updateExt('integrations', key, { ...cfg, enabled: v })}
@@ -466,14 +467,14 @@ export function SettingsPage() {
 
           {activeCategory === 'backup' && (
             <SettingsSection title="Backup Configuration">
-              <Toggle label="Enable automated backups" checked={Boolean(backup.enabled ?? true)} onChange={(v) => updateExt('backup', 'enabled', v)} />
+              <SwitchRow label="Enable automated backups" checked={Boolean(backup.enabled ?? true)} onChange={(v) => updateExt('backup', 'enabled', v)} />
               <SettingsField label="Schedule (cron)">
                 <input value={String(backup.schedule ?? '0 2 * * *')} onChange={(e) => updateExt('backup', 'schedule', e.target.value)} className="input font-mono" />
               </SettingsField>
               <SettingsField label="Retention (days)">
                 <input type="number" value={Number(backup.retentionDays ?? 30)} onChange={(e) => updateExt('backup', 'retentionDays', parseInt(e.target.value))} className="input" />
               </SettingsField>
-              <Toggle label="Include attachments" checked={Boolean(backup.includeAttachments ?? true)} onChange={(v) => updateExt('backup', 'includeAttachments', v)} />
+              <SwitchRow label="Include attachments" checked={Boolean(backup.includeAttachments ?? true)} onChange={(v) => updateExt('backup', 'includeAttachments', v)} />
               <SettingsField label="Last Backup Status">
                 <span className="text-sm text-gray-600">{String(backup.lastBackupStatus ?? 'success')}</span>
               </SettingsField>
@@ -482,9 +483,9 @@ export function SettingsPage() {
 
           {activeCategory === 'system' && (
             <SettingsSection title="System Configuration">
-              <Toggle label="Maintenance mode" checked={Boolean(system.maintenanceMode ?? false)} onChange={(v) => updateExt('system', 'maintenanceMode', v)} />
-              <Toggle label="Enable reCAPTCHA" checked={Boolean(system.enableRecaptcha ?? false)} onChange={(v) => updateExt('system', 'enableRecaptcha', v)} />
-              <Toggle label="Cache enabled" checked={Boolean(system.cacheEnabled ?? true)} onChange={(v) => updateExt('system', 'cacheEnabled', v)} />
+              <SwitchRow label="Maintenance mode" checked={Boolean(system.maintenanceMode ?? false)} onChange={(v) => updateExt('system', 'maintenanceMode', v)} />
+              <SwitchRow label="Enable reCAPTCHA" checked={Boolean(system.enableRecaptcha ?? false)} onChange={(v) => updateExt('system', 'enableRecaptcha', v)} />
+              <SwitchRow label="Cache enabled" checked={Boolean(system.cacheEnabled ?? true)} onChange={(v) => updateExt('system', 'cacheEnabled', v)} />
               <SettingsField label="Search Index Version">
                 <span className="text-sm text-gray-600">{String(system.searchIndexVersion ?? 1)}</span>
               </SettingsField>
@@ -659,20 +660,3 @@ function SettingsField({ label, children }: { label: string; children: React.Rea
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-gray-700">{label}</span>
-      <button
-        onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 rounded-full transition-colors ${checked ? 'bg-hoterra-navy' : 'bg-gray-200'}`}
-      >
-        <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-5' : 'translate-x-0.5'
-          }`}
-        />
-      </button>
-    </div>
-  );
-}

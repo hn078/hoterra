@@ -6,6 +6,7 @@ import {
   DocumentCategory,
   DocumentPriority,
   AuditAction,
+  ConversationType,
 } from '@prisma/client';
 import { DEFAULT_SIGNATURE_PLACEMENTS, serializeSignaturePlacements } from './lib/signatures';
 
@@ -132,13 +133,18 @@ async function main() {
 
   await prisma.workflowRoute.upsert({
     where: { id: 'standard' },
-    update: {},
+    update: { status: 'ACTIVE' },
     create: {
       id: 'standard',
       name: 'Standard Route',
       description: 'Author → HOD → Finance → GM',
-      steps: JSON.stringify(['HOD', 'FINANCE', 'GM']),
+      steps: JSON.stringify([
+        { id: 'step-hod', type: 'APPROVAL', role: 'HOD', label: 'Head of Department' },
+        { id: 'step-finance', type: 'APPROVAL', role: 'FINANCE_DIRECTOR', label: 'Finance Director' },
+        { id: 'step-gm', type: 'APPROVAL', role: 'GENERAL_MANAGER', label: 'General Manager' },
+      ]),
       isDefault: true,
+      status: 'ACTIVE',
     },
   });
 
@@ -410,6 +416,270 @@ async function main() {
     },
   ]) {
     await prisma.auditLog.create({ data: log });
+  }
+
+  const nigar = userByEmail['nigar.rustamova@hoterra.az'];
+  const employee = userByEmail['employee@hoterra.az'];
+
+  let hotelChat = await prisma.conversation.findFirst({ where: { type: ConversationType.HOTEL } });
+  if (!hotelChat) {
+    hotelChat = await prisma.conversation.create({ data: { type: ConversationType.HOTEL } });
+  }
+
+  const foDept = deptByCode.FO;
+  let foChat = await prisma.conversation.findFirst({
+    where: { type: ConversationType.DEPARTMENT, departmentId: foDept.id },
+  });
+  if (!foChat) {
+    foChat = await prisma.conversation.create({
+      data: { type: ConversationType.DEPARTMENT, departmentId: foDept.id },
+    });
+  }
+
+  for (const u of [fuad, nigar, employee]) {
+    await prisma.conversationParticipant.upsert({
+      where: { conversationId_userId: { conversationId: hotelChat.id, userId: u.id } },
+      create: { conversationId: hotelChat.id, userId: u.id },
+      update: {},
+    });
+  }
+
+  for (const u of [nigar, employee]) {
+    await prisma.conversationParticipant.upsert({
+      where: { conversationId_userId: { conversationId: foChat.id, userId: u.id } },
+      create: { conversationId: foChat.id, userId: u.id },
+      update: {},
+    });
+  }
+
+  const existingHotelMsg = await prisma.message.count({ where: { conversationId: hotelChat.id } });
+  if (existingHotelMsg === 0) {
+    await prisma.message.create({
+      data: {
+        conversationId: hotelChat.id,
+        senderId: fuad.id,
+        content: 'Welcome to the hotel-wide chat. Use this channel for announcements and cross-department coordination.',
+      },
+    });
+
+    const checkInDoc = await prisma.document.findUnique({ where: { code: 'FO-SOP-001' } });
+    await prisma.message.create({
+      data: {
+        conversationId: foChat.id,
+        senderId: nigar.id,
+        content: 'Front Office team — please review the updated check-in SOP before your shift:',
+        ...(checkInDoc ? { documentId: checkInDoc.id } : {}),
+      },
+    });
+  }
+
+  // ── Casual Workforce ──────────────────────────────────────────────
+  await prisma.workforceSettings.upsert({
+    where: { id: 'default' },
+    update: {
+      hotelsJson: JSON.stringify(['HOTERRA', 'HOTERRA Beach', 'HOTERRA City']),
+      hotelName: 'HOTERRA',
+      notifyEmail: true,
+      notifyPush: true,
+      payrollTolerancePct: 5,
+    },
+    create: {
+      id: 'default',
+      hotelName: 'HOTERRA',
+      hotelsJson: JSON.stringify(['HOTERRA', 'HOTERRA Beach', 'HOTERRA City']),
+      minLeadHours: 24,
+      notifyEmail: true,
+      notifyPush: true,
+      payrollTolerancePct: 5,
+    },
+  });
+
+  const positionNames = [
+    'Room Attendant',
+    'Public Area Attendant',
+    'Steward',
+    'Waiter/Waitress',
+    'Banquet Waiter',
+    'Bartender',
+    'Cook',
+    'Kitchen Helper',
+    'Bellman',
+    'Porter',
+    'Houseman',
+    'Laundry Attendant',
+    'Technician',
+    'Security Officer',
+    'Receptionist',
+    'Concierge',
+    'Spa Therapist',
+    'Lifeguard',
+    'Driver',
+  ];
+
+  for (const name of positionNames) {
+    await prisma.workforcePosition.upsert({
+      where: { name },
+      update: {},
+      create: { name },
+    });
+  }
+
+  for (const v of [
+    { name: 'Vendor A', contactEmail: 'desk@vendora.az', phone: '+994 12 000 0001' },
+    { name: 'Vendor B', contactEmail: 'ops@vendorb.az', phone: '+994 12 000 0002' },
+    { name: 'Vendor C', contactEmail: 'booking@vendorc.az', phone: '+994 12 000 0003' },
+  ]) {
+    await prisma.vendor.upsert({
+      where: { name: v.name },
+      update: { contactEmail: v.contactEmail, phone: v.phone, isApproved: true },
+      create: { ...v, isApproved: true },
+    });
+  }
+
+  const routeDefs: { code: string; name: string; steps: { role: Role; label: string }[] }[] = [
+    {
+      code: 'HK',
+      name: 'Housekeeping Casual Route',
+      steps: [
+        { role: Role.HOD, label: 'Executive Housekeeper' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.GENERAL_MANAGER, label: 'General Manager' },
+      ],
+    },
+    {
+      code: 'FB',
+      name: 'F&B Casual Route',
+      steps: [
+        { role: Role.HOD, label: 'Restaurant Manager / F&B Director' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.GENERAL_MANAGER, label: 'General Manager' },
+      ],
+    },
+    {
+      code: 'EN',
+      name: 'Engineering Casual Route',
+      steps: [
+        { role: Role.HOD, label: 'Chief Engineer' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.GENERAL_MANAGER, label: 'General Manager' },
+      ],
+    },
+    {
+      code: 'FO',
+      name: 'Front Office Casual Route',
+      steps: [
+        { role: Role.HOD, label: 'Front Office Manager' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.GENERAL_MANAGER, label: 'General Manager' },
+      ],
+    },
+  ];
+
+  for (const rd of routeDefs) {
+    const dept = deptByCode[rd.code];
+    if (!dept) continue;
+    await prisma.workforceApprovalRoute.upsert({
+      where: { departmentId: dept.id },
+      update: { name: rd.name, steps: JSON.stringify(rd.steps) },
+      create: { departmentId: dept.id, name: rd.name, steps: JSON.stringify(rd.steps) },
+    });
+  }
+
+  const now = new Date();
+  for (const code of ['HK', 'FB', 'FO', 'EN']) {
+    const dept = deptByCode[code];
+    if (!dept) continue;
+    await prisma.departmentCasualBudget.upsert({
+      where: {
+        departmentId_year_month: {
+          departmentId: dept.id,
+          year: now.getFullYear(),
+          month: now.getMonth() + 1,
+        },
+      },
+      update: { budgetAmount: 5000 },
+      create: {
+        departmentId: dept.id,
+        year: now.getFullYear(),
+        month: now.getMonth() + 1,
+        budgetAmount: 5000,
+      },
+    });
+  }
+
+  const waiter = await prisma.workforcePosition.findUnique({ where: { name: 'Waiter/Waitress' } });
+  const receptionist = await prisma.workforcePosition.findUnique({ where: { name: 'Receptionist' } });
+  const vendorA = await prisma.vendor.findUnique({ where: { name: 'Vendor A' } });
+  const fbDept = deptByCode.FB;
+  const foDeptForWf = deptByCode.FO;
+
+  if (waiter && vendorA && fbDept) {
+    const tmplExists = await prisma.workforceRequestTemplate.findFirst({
+      where: { name: 'Friday banquet waiters' },
+    });
+    if (!tmplExists) {
+      await prisma.workforceRequestTemplate.create({
+        data: {
+          name: 'Friday banquet waiters',
+          departmentId: fbDept.id,
+          positionId: waiter.id,
+          shift: 'EVENING',
+          quantity: 5,
+          dayOfWeek: 5,
+          comment: 'Recurring Friday banquet coverage',
+          vendorMode: 'DIRECT',
+          vendorId: vendorA.id,
+          isRecurring: true,
+          hotelName: 'HOTERRA',
+        },
+      });
+    } else {
+      await prisma.workforceRequestTemplate.update({
+        where: { id: tmplExists.id },
+        data: { isRecurring: true, hotelName: 'HOTERRA' },
+      });
+    }
+  }
+
+  if (receptionist && vendorA && foDeptForWf) {
+    const existingReq = await prisma.workforceRequest.findUnique({ where: { code: 'CWR-00001' } });
+    if (!existingReq) {
+      const workDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      const steps = [
+        { role: Role.HOD, label: 'Front Office Manager' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.GENERAL_MANAGER, label: 'General Manager' },
+      ];
+      const req = await prisma.workforceRequest.create({
+        data: {
+          code: 'CWR-00001',
+          hotelName: 'HOTERRA',
+          departmentId: foDeptForWf.id,
+          positionId: receptionist.id,
+          workDate,
+          shift: 'MORNING',
+          startTime: '08:00',
+          endTime: '16:00',
+          quantity: 3,
+          comment: 'Peak check-in coverage — demo request',
+          vendorMode: 'DIRECT',
+          vendorId: vendorA.id,
+          status: 'PENDING',
+          approvalSteps: JSON.stringify(steps),
+          estimatedCost: 3 * 8 * 15,
+          createdById: nigar.id,
+        },
+      });
+      await prisma.workforceRequestEvent.create({
+        data: {
+          requestId: req.id,
+          action: 'CREATED',
+          details: 'Demo seed request',
+          userId: nigar.id,
+          userName: 'Nigar Rustamova',
+        },
+      });
+    }
   }
 
   console.log('Seed completed successfully!');

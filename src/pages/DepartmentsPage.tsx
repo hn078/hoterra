@@ -138,8 +138,8 @@ export function DepartmentsPage() {
         }
       />
 
-      <div className="page-stats">
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="page-stats page-stats--tabs">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <DashStatCard label="Departments" value={stats.departments} icon={Building2} iconColor="text-blue-600" iconBg="bg-blue-50" />
           <DashStatCard label="Total Documents" value={stats.totalDocs} icon={FileText} iconColor="text-purple-600" iconBg="bg-purple-50" />
           <DashStatCard label="Total Users" value={stats.totalUsers} icon={Users} iconColor="text-cyan-600" iconBg="bg-cyan-50" />

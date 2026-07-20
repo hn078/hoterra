@@ -18,6 +18,7 @@ import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
 import type { Document, User as UserType, Department, Template, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS } from '@/types';
+import { countWorkflowSteps } from '@/lib/workflows';
 import { formatDateTime } from '@/lib/utils';
 
 const RESULT_TABS = [
@@ -292,8 +293,11 @@ export function SearchPage() {
                       iconColor="text-purple-500"
                       title={wf.name}
                       breadcrumb="Workflows"
-                      description={wf.description || `${wf.steps.length} approval steps`}
-                      tags={wf.isDefault ? ['Default'] : ['Custom']}
+                      description={wf.description || wf.stepsSummary || `${countWorkflowSteps(wf.steps)} steps`}
+                      tags={[
+                        ...(wf.isDefault ? ['Default'] : []),
+                        ...(wf.status ? [wf.status === 'ACTIVE' ? 'Active' : wf.status === 'DRAFT' ? 'Draft' : 'Archived'] : ['Custom']),
+                      ]}
                       link={`/workflows/${wf.id}/designer`}
                     />
                   ))}

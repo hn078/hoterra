@@ -18,22 +18,24 @@ const SPARKLINE_HEIGHTS = [40, 65, 45, 80, 55, 90, 70, 60];
 
 export function DashStatCard({ label, value, icon: Icon, iconColor, iconBg, to, sub, sparkline, accentBorder }: DashStatCardProps) {
   return (
-    <div className={cn('card p-4', accentBorder && `border-l-4 ${accentBorder}`)}>
-      <div className="mb-3 flex items-start justify-between">
-        <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', iconBg)}>
-          <Icon className={cn('h-5 w-5', iconColor)} />
+    <div className={cn('card p-3', accentBorder && `border-l-4 ${accentBorder}`)}>
+      <div className="flex items-center gap-2.5">
+        <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconBg)}>
+          <Icon className={cn('h-4 w-4', iconColor)} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xl font-bold leading-tight text-hoterra-navy">{value}</div>
+          <div className="truncate text-xs text-gray-500">{label}</div>
+          {sub && <div className="truncate text-[10px] leading-tight text-gray-400">{sub}</div>}
         </div>
         {to && (
-          <Link to={to} className="text-xs text-hoterra-steel hover:underline">
+          <Link to={to} className="shrink-0 self-start text-[10px] text-hoterra-steel hover:underline">
             View all →
           </Link>
         )}
       </div>
-      <div className="text-3xl font-bold text-hoterra-navy">{value}</div>
-      <div className="mt-1 text-xs text-gray-500">{label}</div>
-      {sub && <div className="mt-0.5 text-[10px] text-gray-400">{sub}</div>}
       {sparkline && (
-        <div className="mt-3 flex h-8 items-end gap-0.5">
+        <div className="mt-2 flex h-6 items-end gap-0.5">
           {SPARKLINE_HEIGHTS.map((h, i) => (
             <div
               key={i}

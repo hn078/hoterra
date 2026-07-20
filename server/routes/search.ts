@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { formatWorkflow } from '../lib/workflows';
 
 const router = Router();
 
@@ -89,7 +90,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     users,
     departments,
     templates,
-    workflows: workflows.map((w) => ({ ...w, steps: JSON.parse(w.steps) })),
+    workflows: workflows.map(formatWorkflow),
     total: documents.length + users.length + departments.length + templates.length + workflows.length,
   });
 });

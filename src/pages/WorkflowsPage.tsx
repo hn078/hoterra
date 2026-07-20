@@ -12,6 +12,14 @@ import { Header } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { api } from '@/lib/api';
 import type { WorkflowItem } from '@/types';
+import {
+  WORKFLOW_STATUS_LABELS,
+  countWorkflowSteps,
+  parseWorkflowSteps,
+  stepDisplayLabel,
+  stepTypeMeta,
+} from '@/lib/workflows';
+import { ROLE_LABELS } from '@/types';
 import { cn } from '@/lib/utils';
 
 export function WorkflowsPage() {
@@ -19,9 +27,16 @@ export function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [view, setView] = useState<'cards' | 'table'>('cards');
   const [creating, setCreating] = useState(false);
+  const [updatingDefault, setUpdatingDefault] = useState<string | null>(null);
+
+  const loadWorkflows = () => {
+    api.getWorkflows().then((list) => {
+      setWorkflows(list.map((wf) => ({ ...wf, steps: parseWorkflowSteps(wf.steps) })));
+    }).catch(console.error);
+  };
 
   useEffect(() => {
-    api.getWorkflows().then(setWorkflows).catch(console.error);
+    loadWorkflows();
   }, []);
 
   const handleNewWorkflow = async () => {
@@ -36,6 +51,24 @@ export function WorkflowsPage() {
       alert(err instanceof Error ? err.message : 'Failed to create workflow');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleSetDefault = async (e: React.MouseEvent, wf: WorkflowItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (wf.status !== 'ACTIVE') {
+      alert('Activate the workflow in the designer before setting it as default');
+      return;
+    }
+    setUpdatingDefault(wf.id);
+    try {
+      await api.setWorkflowDefault(wf.id, !wf.isDefault);
+      loadWorkflows();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update default');
+    } finally {
+      setUpdatingDefault(null);
     }
   };
 
@@ -88,7 +121,12 @@ export function WorkflowsPage() {
         {view === 'cards' ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {workflows.map((wf) => (
-              <WorkflowCard key={wf.id} workflow={wf} />
+              <WorkflowCard
+                key={wf.id}
+                workflow={wf}
+                onSetDefault={handleSetDefault}
+                updatingDefault={updatingDefault === wf.id}
+              />
             ))}
           </div>
         ) : (
@@ -100,6 +138,7 @@ export function WorkflowsPage() {
                   <th className="px-4 py-3 font-medium">Description</th>
                   <th className="px-4 py-3 font-medium">Steps</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Default</th>
                   <th className="px-4 py-3 font-medium" />
                 </tr>
               </thead>
@@ -110,17 +149,34 @@ export function WorkflowsPage() {
                       <div className="flex items-center gap-2">
                         <GitBranch className="h-4 w-4 text-hoterra-steel" />
                         <span className="font-medium text-hoterra-navy">{wf.name}</span>
-                        {wf.isDefault && (
-                          <Star className="h-3.5 w-3.5 fill-hoterra-gold text-hoterra-gold" />
-                        )}
                       </div>
                     </td>
                     <td className="max-w-xs truncate px-4 py-3 text-gray-600">
                       {wf.description ?? '—'}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{wf.steps.length}</td>
+                    <td className="px-4 py-3 text-gray-600">{countWorkflowSteps(wf.steps)}</td>
                     <td className="px-4 py-3">
-                      <WorkflowStatus isDefault={wf.isDefault} />
+                      <WorkflowStatusBadge status={wf.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {wf.status === 'ACTIVE' ? (
+                        <button
+                          type="button"
+                          onClick={(e) => handleSetDefault(e, wf)}
+                          disabled={updatingDefault === wf.id}
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs',
+                            wf.isDefault
+                              ? 'bg-hoterra-gold/15 text-hoterra-gold'
+                              : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                          )}
+                        >
+                          <Star className={cn('h-3 w-3', wf.isDefault && 'fill-current')} />
+                          {wf.isDefault ? 'Default' : 'Set default'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link
@@ -148,7 +204,17 @@ export function WorkflowsPage() {
   );
 }
 
-function WorkflowCard({ workflow }: { workflow: WorkflowItem }) {
+function WorkflowCard({
+  workflow,
+  onSetDefault,
+  updatingDefault,
+}: {
+  workflow: WorkflowItem;
+  onSetDefault: (e: React.MouseEvent, wf: WorkflowItem) => void;
+  updatingDefault: boolean;
+}) {
+  const stepCount = countWorkflowSteps(workflow.steps);
+
   return (
     <Link
       to={`/workflows/${workflow.id}/designer`}
@@ -158,7 +224,7 @@ function WorkflowCard({ workflow }: { workflow: WorkflowItem }) {
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-hoterra-steel/10">
           <GitBranch className="h-5 w-5 text-hoterra-steel" />
         </div>
-        <WorkflowStatus isDefault={workflow.isDefault} />
+        <WorkflowStatusBadge status={workflow.status} />
       </div>
       <h3 className="font-semibold text-hoterra-navy group-hover:text-hoterra-steel">
         {workflow.name}
@@ -169,26 +235,66 @@ function WorkflowCard({ workflow }: { workflow: WorkflowItem }) {
       <p className="mt-1 line-clamp-2 text-sm text-gray-500">
         {workflow.description ?? 'No description'}
       </p>
+
+      <div className="mt-3 flex flex-wrap gap-1">
+        {workflow.steps.slice(0, 4).map((step, i) => (
+          <span
+            key={step.id ?? i}
+            className={cn(
+              'rounded px-1.5 py-0.5 text-[10px]',
+              stepTypeMeta(step.type === 'SIGN' ? 'APPROVAL' : step.type).runtimeImplemented
+                ? 'bg-purple-50 text-purple-700'
+                : 'bg-gray-100 text-gray-600'
+            )}
+          >
+            {stepDisplayLabel(step, ROLE_LABELS)}
+          </span>
+        ))}
+        {workflow.steps.length > 4 && (
+          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+            +{workflow.steps.length - 4}
+          </span>
+        )}
+      </div>
+
       <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
-        <span>{workflow.steps.length} steps</span>
-        <span className="flex items-center gap-1 text-hoterra-steel opacity-0 transition-opacity group-hover:opacity-100">
-          Open Designer
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
+        <span>{stepCount} step{stepCount !== 1 ? 's' : ''}</span>
+        <div className="flex items-center gap-2">
+          {workflow.status === 'ACTIVE' && (
+            <button
+              type="button"
+              onClick={(e) => onSetDefault(e, workflow)}
+              disabled={updatingDefault}
+              className={cn(
+                'inline-flex items-center gap-1 rounded px-1.5 py-0.5 opacity-0 transition-opacity group-hover:opacity-100',
+                workflow.isDefault ? 'text-hoterra-gold' : 'text-gray-500 hover:text-hoterra-steel'
+              )}
+            >
+              <Star className={cn('h-3 w-3', workflow.isDefault && 'fill-current')} />
+              {workflow.isDefault ? 'Default' : 'Set default'}
+            </button>
+          )}
+          <span className="flex items-center gap-1 text-hoterra-steel opacity-0 transition-opacity group-hover:opacity-100">
+            Open Designer
+            <ChevronRight className="h-3.5 w-3.5" />
+          </span>
+        </div>
       </div>
     </Link>
   );
 }
 
-function WorkflowStatus({ isDefault }: { isDefault: boolean }) {
+function WorkflowStatusBadge({ status }: { status: WorkflowItem['status'] }) {
   return (
     <span
       className={cn(
         'rounded-full px-2.5 py-0.5 text-xs font-medium',
-        isDefault ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+        status === 'ACTIVE' && 'bg-green-100 text-green-700',
+        status === 'DRAFT' && 'bg-amber-100 text-amber-700',
+        status === 'ARCHIVED' && 'bg-gray-100 text-gray-600'
       )}
     >
-      {isDefault ? 'Active' : 'Draft'}
+      {WORKFLOW_STATUS_LABELS[status]}
     </span>
   );
 }

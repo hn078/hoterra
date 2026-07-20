@@ -117,8 +117,8 @@ export function MyApprovalsPage() {
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header title="My Approvals" subtitle="Review and take action on documents requiring your approval" />
 
-      <div className="page-stats">
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="page-stats page-stats--tabs">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <DashStatCard label="Pending Approval" value={counts.pending} sub="Requires your action" icon={Clock} iconColor="text-orange-600" iconBg="bg-orange-50" accentBorder="border-l-orange-500" />
           <DashStatCard label="Approved" value={counts.approved} sub="By you" icon={CheckCircle} iconColor="text-green-600" iconBg="bg-green-50" />
           <DashStatCard label="Rejected" value={counts.rejected} sub="By you" icon={XCircle} iconColor="text-red-600" iconBg="bg-red-50" />

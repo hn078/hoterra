@@ -16,7 +16,7 @@ import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
 import type { Department, Document, Template, User, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
-import { formatDate } from '@/lib/utils';
+import { countWorkflowSteps, WORKFLOW_STATUS_LABELS } from '@/lib/workflows';
 
 type DepartmentDetail = Department & {
   users: User[];
@@ -136,8 +136,8 @@ export function DepartmentDetailPage() {
         </div>
       </div>
 
-      <div className="page-stats">
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="page-stats page-stats--tabs">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <DashStatCard label="Team Members" value={userCount} icon={Users} iconColor="text-blue-600" iconBg="bg-blue-50" />
           <DashStatCard label="Documents" value={docCount} icon={FileText} iconColor="text-green-600" iconBg="bg-green-50" />
           <DashStatCard label="Active SOPs" value={sops.length} icon={BookOpen} iconColor="text-purple-600" iconBg="bg-purple-50" />
@@ -219,15 +219,17 @@ export function DepartmentDetailPage() {
                 {(dept.workflowList ?? []).slice(0, 4).map((wf) => (
                   <Link
                     key={wf.id}
-                    to={`/workflows/${wf.id}/design`}
+                    to={`/workflows/${wf.id}/designer`}
                     className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
                   >
                     <div>
                       <p className="text-sm font-medium text-gray-800">{wf.name}</p>
-                      <p className="text-xs text-gray-500">{wf.steps.length} steps</p>
+                      <p className="text-xs text-gray-500">{countWorkflowSteps(wf.steps)} steps</p>
                     </div>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${wf.isDefault ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                      {wf.isDefault ? 'Default' : 'Active'}
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      wf.isDefault ? 'bg-hoterra-gold/15 text-hoterra-gold' : wf.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {wf.isDefault ? 'Default' : WORKFLOW_STATUS_LABELS[wf.status ?? 'DRAFT']}
                     </span>
                   </Link>
                 ))}
@@ -292,10 +294,10 @@ export function DepartmentDetailPage() {
                 {(dept.workflowList ?? []).map((wf) => (
                   <tr key={wf.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-hoterra-navy">{wf.name}</td>
-                    <td className="px-4 py-3 text-gray-600">{wf.steps.length}</td>
+                    <td className="px-4 py-3 text-gray-600">{countWorkflowSteps(wf.steps)}</td>
                     <td className="px-4 py-3">{wf.isDefault ? 'Yes' : 'No'}</td>
                     <td className="px-4 py-3">
-                      <Link to={`/workflows/${wf.id}/design`} className="text-hoterra-steel hover:underline">Design →</Link>
+                      <Link to={`/workflows/${wf.id}/designer`} className="text-hoterra-steel hover:underline">Design →</Link>
                     </td>
                   </tr>
                 ))}
