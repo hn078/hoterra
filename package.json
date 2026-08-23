@@ -23,6 +23,7 @@
     "dist:win": "npm run prepare:prisma-bundle && electron-builder --win --publish never",
     "preview": "vite preview",
     "db:seed": "tsx server/seed.ts",
+    "db:seed:production": "node dist-server/seed.js",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:sync": "prisma db push",

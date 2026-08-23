@@ -1,6 +1,6 @@
 const { spawn } = require('node:child_process');
 
-const service = (process.env.RAILWAY_SERVICE_NAME || '').toLowerCase();
+const service = (process.env.HOTERRA_SERVICE_MODE || process.env.RAILWAY_SERVICE_NAME || '').toLowerCase();
 
 function runNpm(script) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -20,6 +20,8 @@ if (service === 'backend') {
   runNpm('start:backend');
 } else if (service === 'frontend') {
   runNpm('start:frontend');
+} else if (service === 'seed') {
+  runNpm('db:seed:production');
 } else {
   console.error(`Unsupported Railway service: ${service || '(missing)'}`);
   process.exit(1);
