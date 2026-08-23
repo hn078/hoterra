@@ -22,7 +22,7 @@ const FEATURES = [
 ];
 
 export function LoginPage() {
-  const [email, setEmail] = useState('fuad.ahmadov@hoterra.az');
+  const [email, setEmail] = useState('rasul.mursagulov@hoterra.az');
   const [password, setPassword] = useState('password123');
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -39,7 +39,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/');
+      navigate('/app');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

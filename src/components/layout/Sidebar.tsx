@@ -30,7 +30,7 @@ import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS, type DocumentStatus } from '
 import { cn, getInitials } from '@/lib/utils';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/app', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/documents', icon: FileText, label: 'Documents' },
   { to: '/approvals', icon: CheckSquare, label: 'My Approvals', badgeKey: 'approvals' as const },
   { to: '/templates', icon: LayoutTemplate, label: 'Templates' },

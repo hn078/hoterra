@@ -67,10 +67,11 @@ export function createApp() {
 
 export function startServer(port = Number(process.env.PORT) || 3211) {
   const app = createApp();
+  const host = process.env.HOST || '0.0.0.0';
 
   return new Promise<{ port: number }>((resolve, reject) => {
-    const server = app.listen(port, '127.0.0.1', () => {
-      console.log(`HOTERRA HDMS API:  http://127.0.0.1:${port}/api`);
+    const server = app.listen(port, host, () => {
+      console.log(`HOTERRA HDMS API listening on ${host}:${port}`);
       startRecurringScheduler();
       resolve({ port });
     });

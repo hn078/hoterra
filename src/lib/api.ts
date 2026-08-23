@@ -3,7 +3,12 @@ class ApiClient {
 
   private get baseUrl(): string {
     if (typeof window !== 'undefined' && window.__HOTERRA_API__) {
-      return window.__HOTERRA_API__;
+      return window.__HOTERRA_API__.replace(/\/$/, '');
+    }
+
+    const configuredUrl = import.meta.env.VITE_API_URL;
+    if (configuredUrl) {
+      return configuredUrl.replace(/\/$/, '');
     }
     return 'http://127.0.0.1:3211/api';
   }

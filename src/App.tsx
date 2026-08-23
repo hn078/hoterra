@@ -27,6 +27,7 @@ import { MessagesPage } from '@/pages/MessagesPage';
 import { WorkforcePage } from '@/pages/WorkforcePage';
 import { WorkforceRequestPage } from '@/pages/WorkforceRequestPage';
 import { VendorPortalPage } from '@/pages/VendorPortalPage';
+import { LandingPage } from '@/pages/LandingPage';
 import { useAuthStore } from '@/store/auth';
 
 const isFileProtocol =
@@ -45,10 +46,11 @@ export default function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/" element={isFileProtocol ? <Navigate to="/app" replace /> : <LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/vendor/order/:token" element={<VendorPortalPage />} />
         <Route element={<AppLayout />}>
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/app" element={<DashboardPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/documents/create" element={<CreateDocumentPage />} />
           <Route path="/documents/:id" element={<DocumentDetailPage />} />
