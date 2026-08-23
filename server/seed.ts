@@ -51,11 +51,12 @@ async function main() {
   const deptByCode = Object.fromEntries(departments.map((d) => [d.code, d]));
 
   const passwordHash = await bcrypt.hash('password123', 10);
+  const gmPasswordHash = await bcrypt.hash('Test12345', 10);
   const pinHash = await bcrypt.hash('1234', 10);
 
   const users = [
     {
-      email: 'rasul.mursagulov@hoterra.az',
+      email: 'rasul.mursagulov@hgibaku.com',
       firstName: 'Rəsul',
       lastName: 'Mürsəqulov',
       role: Role.GENERAL_MANAGER,
@@ -95,7 +96,11 @@ async function main() {
     await prisma.user.upsert({
       where: { email: u.email },
       update: {},
-      create: { ...u, passwordHash, pinHash },
+      create: {
+        ...u,
+        passwordHash: u.email === 'rasul.mursagulov@hgibaku.com' ? gmPasswordHash : passwordHash,
+        pinHash,
+      },
     });
   }
 
@@ -154,7 +159,7 @@ async function main() {
       code: 'FO-SOP-001',
       category: DocumentCategory.SOP,
       departmentId: deptByCode.FO.id,
-      authorId: userByEmail['rasul.mursagulov@hoterra.az'].id,
+      authorId: userByEmail['rasul.mursagulov@hgibaku.com'].id,
       ownerId: userByEmail['nigar.rustamova@hoterra.az'].id,
       status: DocumentStatus.PUBLISHED,
       version: '2.1',
@@ -202,8 +207,8 @@ async function main() {
       code: 'GM-POL-003',
       category: DocumentCategory.POLICIES,
       departmentId: deptByCode.GM.id,
-      authorId: userByEmail['rasul.mursagulov@hoterra.az'].id,
-      ownerId: userByEmail['rasul.mursagulov@hoterra.az'].id,
+      authorId: userByEmail['rasul.mursagulov@hgibaku.com'].id,
+      ownerId: userByEmail['rasul.mursagulov@hgibaku.com'].id,
       status: DocumentStatus.DRAFT,
       version: '1.0',
       tags: JSON.stringify(['Privacy', 'GDPR']),
@@ -241,8 +246,8 @@ async function main() {
       code: 'SC-POL-012',
       category: DocumentCategory.POLICIES,
       departmentId: deptByCode.SC.id,
-      authorId: userByEmail['rasul.mursagulov@hoterra.az'].id,
-      ownerId: userByEmail['rasul.mursagulov@hoterra.az'].id,
+      authorId: userByEmail['rasul.mursagulov@hgibaku.com'].id,
+      ownerId: userByEmail['rasul.mursagulov@hgibaku.com'].id,
       status: DocumentStatus.ARCHIVED,
       version: '1.0',
       archiveReason: 'Superseded by 2024 edition',
@@ -285,7 +290,7 @@ async function main() {
     const sigUsers = [
       { user: userByEmail['nigar.rustamova@hoterra.az'], position: 'Head of Department' },
       { user: userByEmail['elnur.mahmudov@hoterra.az'], position: 'Finance Director' },
-      { user: userByEmail['rasul.mursagulov@hoterra.az'], position: 'General Manager' },
+      { user: userByEmail['rasul.mursagulov@hgibaku.com'], position: 'General Manager' },
     ];
 
     for (const s of sigUsers) {
@@ -365,7 +370,7 @@ async function main() {
     }
   }
 
-  const rasul = userByEmail['rasul.mursagulov@hoterra.az'];
+  const rasul = userByEmail['rasul.mursagulov@hgibaku.com'];
   const notificationSamples = [
     { title: 'Document approved', message: 'Q2 Financial Report has been approved by Finance Director', type: 'document', link: '/documents' },
     { title: 'Approval required', message: 'Guest Check-in Procedure requires your review', type: 'workflow', link: '/approvals' },
@@ -687,8 +692,9 @@ async function main() {
 
   console.log('Seed completed successfully!');
   console.log('');
-  console.log('Demo accounts (password: password123, PIN: 1234):');
-  console.log('  GM:       rasul.mursagulov@hoterra.az');
+  console.log('Demo accounts (PIN: 1234):');
+  console.log('  GM:       rasul.mursagulov@hgibaku.com / Test12345');
+  console.log('  Others use password123');
   console.log('  HOD:      nigar.rustamova@hoterra.az');
   console.log('  Finance:  elnur.mahmudov@hoterra.az');
   console.log('  Employee: employee@hoterra.az');

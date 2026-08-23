@@ -155,7 +155,7 @@ export const DEPARTMENT_META: Record<string, { location: string; description: st
   HR: { location: 'Head Office', description: 'Recruitment, training and employee relations.', headEmail: 'employee@hoterra.az' },
   FB: { location: 'Main Hotel', description: 'Restaurant, bar and banquet operations.', headEmail: 'employee@hoterra.az' },
   KT: { location: 'Main Hotel', description: 'Kitchen operations and food preparation standards.', headEmail: 'employee@hoterra.az' },
-  GM: { location: 'Head Office', description: 'Executive management and corporate governance.', headEmail: 'fuad.ahmadov@hoterra.az' },
+  GM: { location: 'Head Office', description: 'Executive management and corporate governance.', headEmail: 'rasul.mursagulov@hgibaku.com' },
 };
 
 export function getPriority(index: number): 'high' | 'medium' | 'low' {

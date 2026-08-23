@@ -72,13 +72,13 @@ export function CreateDocumentPage() {
       setWorkflows(activeWorkflows);
       const fo = depts.find((d) => d.code === 'FO');
       const nigar = usrs.find((u) => u.email === 'nigar.rustamova@hoterra.az');
-      const fuad = usrs.find((u) => u.email === 'fuad.ahmadov@hoterra.az');
+      const generalManager = usrs.find((u) => u.email === 'rasul.mursagulov@hgibaku.com');
       const defaultWf = activeWorkflows.find((w) => w.isDefault) || activeWorkflows[0];
       setForm((f) => ({
         ...f,
         departmentId: fo?.id || depts[0]?.id || '',
         ownerId: nigar?.id || '',
-        authorId: fuad?.id || '',
+        authorId: generalManager?.id || '',
         workflowId: defaultWf?.id || '',
       }));
       setSelectedTemplate(tmpls[0]?.id || null);

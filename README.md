@@ -97,7 +97,7 @@ npm run db:migrate:sqlite
 
 | Роль | Email | Пароль |
 |------|-------|--------|
-| General Manager | fuad.ahmadov@hoterra.az | password123 |
+| General Manager | rasul.mursagulov@hgibaku.com | Test12345 |
 | HOD | nigar.rustamova@hoterra.az | password123 |
 | Finance Director | elnur.mahmudov@hoterra.az | password123 |
 | Employee | employee@hoterra.az | password123 |

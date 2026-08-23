@@ -22,8 +22,8 @@ const FEATURES = [
 ];
 
 export function LoginPage() {
-  const [email, setEmail] = useState('rasul.mursagulov@hoterra.az');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('rasul.mursagulov@hgibaku.com');
+  const [password, setPassword] = useState('Test12345');
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');

@@ -62,7 +62,7 @@ Reference map: `docs/page-designs/README.md`
 ## Demo access
 
 - URL: `http://localhost:5173`
-- GM: `fuad.ahmadov@hoterra.az` / `password123`
+- GM: `rasul.mursagulov@hgibaku.com` / `Test12345`
 
 ```bash
 npm run dev:server   # API :3211
