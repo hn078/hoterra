@@ -1,5 +1,7 @@
 import { Role, WorkforceRateUnit, WorkforceRequestStatus, WorkforceVendorMode } from '@prisma/client';
 import { prisma } from '../db';
+import { systemPrisma } from '../db';
+import { runWithTenant } from './tenantContext';
 import {
   addEvent,
   estimateCost,
@@ -22,7 +24,7 @@ function wasGeneratedToday(last: Date | null | undefined) {
 }
 
 /** Create requests from recurring templates for today's weekday. */
-export async function runRecurringTemplates() {
+async function runRecurringTemplatesForTenant() {
   const today = new Date();
   const day = today.getDay(); // 0=Sun
   const settings = await getWorkforceSettings();
@@ -111,6 +113,19 @@ export async function runRecurringTemplates() {
 
   if (created.length) {
     console.log(`[recurring] created: ${created.join(', ')}`);
+  }
+  return created;
+}
+
+export async function runRecurringTemplates() {
+  const tenants = await systemPrisma.tenant.findMany({ where: { isActive: true } });
+  const created: string[] = [];
+  for (const tenant of tenants) {
+    const tenantCreated = await runWithTenant(
+      { id: tenant.id, slug: tenant.slug, name: tenant.name },
+      runRecurringTemplatesForTenant
+    );
+    created.push(...tenantCreated);
   }
   return created;
 }

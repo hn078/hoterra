@@ -18,6 +18,7 @@ import conversationRoutes from './routes/conversations';
 import workforceRoutes from './routes/workforce';
 import vendorPortalRoutes from './routes/vendorPortal';
 import { startRecurringScheduler } from './lib/workforceRecurring';
+import { tenantMiddleware } from './middleware/tenant';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -37,6 +38,8 @@ export function createApp() {
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', version: '1.0.0', frontend: FRONTEND_URL });
   });
+
+  app.use('/api', tenantMiddleware);
 
   app.use('/api/auth', authRoutes);
   app.use('/api/departments', departmentRoutes);

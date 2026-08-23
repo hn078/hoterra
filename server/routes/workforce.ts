@@ -349,9 +349,7 @@ router.patch(
       hotelsJson = JSON.stringify(list.length ? list : ['HOTERRA']);
     }
 
-    const settings = await prisma.workforceSettings.upsert({
-      where: { id: 'default' },
-      update: {
+    const settingsData = {
         ...(hotelName !== undefined && { hotelName: String(hotelName) }),
         ...(hotelsJson !== undefined && {
           hotelsJson,
@@ -367,17 +365,18 @@ router.patch(
         ...(payrollTolerancePct !== undefined && {
           payrollTolerancePct: Number(payrollTolerancePct),
         }),
-      },
-      create: {
-        id: 'default',
+    };
+    const existingSettings = await prisma.workforceSettings.findFirst();
+    const settings = existingSettings
+      ? await prisma.workforceSettings.update({ where: { id: existingSettings.id }, data: settingsData })
+      : await prisma.workforceSettings.create({ data: {
         hotelName: hotelName ? String(hotelName) : 'HOTERRA',
         hotelsJson: hotelsJson || '["HOTERRA"]',
         minLeadHours: minLeadHours != null ? Number(minLeadHours) : 24,
         estimatedHourlyRate: estimatedHourlyRate != null ? Number(estimatedHourlyRate) : 15,
         estimatedHoursPerShift:
           estimatedHoursPerShift != null ? Number(estimatedHoursPerShift) : 8,
-      },
-    });
+      } });
     const full = await getWorkforceSettings();
     res.json(full);
   })

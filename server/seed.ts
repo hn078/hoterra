@@ -1,6 +1,5 @@
 import bcrypt from 'bcryptjs';
 import {
-  PrismaClient,
   Role,
   DocumentStatus,
   DocumentCategory,
@@ -9,10 +8,11 @@ import {
   ConversationType,
 } from '@prisma/client';
 import { DEFAULT_SIGNATURE_PLACEMENTS, serializeSignaturePlacements } from './lib/signatures';
+import { prisma, systemPrisma } from './db';
+import { runWithTenant } from './lib/tenantContext';
+import { HGI_TENANT_ID, HGI_TENANT_SLUG } from './migrateTenants';
 
 const DEFAULT_PLACEMENT_JSON = serializeSignaturePlacements(DEFAULT_SIGNATURE_PLACEMENTS);
-
-const prisma = new PrismaClient();
 
 const DEPARTMENTS = [
   { name: 'General Management', code: 'GM', color: '#6B7280', location: 'Head Office', description: 'Executive leadership and corporate governance.' },
@@ -701,6 +701,13 @@ async function main() {
   console.log('  Admin:    admin@hoterra.az');
 }
 
-main()
+systemPrisma.tenant.upsert({
+  where: { slug: HGI_TENANT_SLUG },
+  update: { name: 'Holiday Inn Baku', isActive: true },
+  create: { id: HGI_TENANT_ID, slug: HGI_TENANT_SLUG, name: 'Holiday Inn Baku' },
+}).then((tenant) => runWithTenant(
+  { id: tenant.id, slug: tenant.slug, name: tenant.name },
+  main
+))
   .catch(console.error)
-  .finally(() => prisma.$disconnect());
+  .finally(() => systemPrisma.$disconnect());

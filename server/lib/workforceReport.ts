@@ -113,7 +113,7 @@ export async function buildWorkforceReport(year: number, month: number, departme
       where: { year, month, ...(departmentId && { departmentId }) },
       include: { department: true },
     }),
-    prisma.workforceSettings.findUnique({ where: { id: 'default' } }),
+    prisma.workforceSettings.findFirst(),
   ]);
 
   const defaultHours = settings?.estimatedHoursPerShift ?? 8;

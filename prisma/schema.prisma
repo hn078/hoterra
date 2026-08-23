@@ -111,50 +111,65 @@ enum WorkforceShift {
   CUSTOM
 }
 
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Department {
-  id            String         @id @default(uuid())
-  name          String         @unique
-  code          String         @unique
-  color         String         @default("#294660")
-  location      String         @default("Main Hotel")
-  description   String?
-  createdAt     DateTime       @default(now())
-  users         User[]
-  documents     Document[]
-  templates     Template[]
-  conversations Conversation[]
-  workforceRequests       WorkforceRequest[]
-  workforceApprovalRoute  WorkforceApprovalRoute?
-  casualBudgets           DepartmentCasualBudget[]
-  workforceTemplates      WorkforceRequestTemplate[]
-  workforcePositions      WorkforcePosition[]
+  tenantId               String?
+  id                     String                     @id @default(uuid())
+  name                   String                     @unique
+  code                   String                     @unique
+  color                  String                     @default("#294660")
+  location               String                     @default("Main Hotel")
+  description            String?
+  createdAt              DateTime                   @default(now())
+  users                  User[]
+  documents              Document[]
+  templates              Template[]
+  conversations          Conversation[]
+  workforceRequests      WorkforceRequest[]
+  workforceApprovalRoute WorkforceApprovalRoute?
+  casualBudgets          DepartmentCasualBudget[]
+  workforceTemplates     WorkforceRequestTemplate[]
+  workforcePositions     WorkforcePosition[]
+
+  @@index([tenantId])
 }
 
 model User {
-  id           String            @id @default(uuid())
-  email        String            @unique
-  passwordHash String
-  pinHash      String?
-  firstName    String
-  lastName     String
-  role         Role              @default(EMPLOYEE)
-  customRoleId String?
-  customRole   CustomRole?       @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
-  departmentId String?
-  department   Department?       @relation(fields: [departmentId], references: [id])
-  isActive        Boolean           @default(true)
-  signatureImage  String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  documents    Document[]        @relation("DocumentAuthor")
-  ownedDocs    Document[]        @relation("DocumentOwner")
-  auditLogs    AuditLog[]
-  signatures   Signature[]
-  comments                DocumentComment[]
-  favorites               UserFavorite[]
+  tenantId                 String?
+  id                       String                    @id @default(uuid())
+  email                    String                    @unique
+  passwordHash             String
+  pinHash                  String?
+  firstName                String
+  lastName                 String
+  role                     Role                      @default(EMPLOYEE)
+  customRoleId             String?
+  customRole               CustomRole?               @relation(fields: [customRoleId], references: [id], onDelete: SetNull)
+  departmentId             String?
+  department               Department?               @relation(fields: [departmentId], references: [id])
+  isActive                 Boolean                   @default(true)
+  signatureImage           String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  documents                Document[]                @relation("DocumentAuthor")
+  ownedDocs                Document[]                @relation("DocumentOwner")
+  auditLogs                AuditLog[]
+  signatures               Signature[]
+  comments                 DocumentComment[]
+  favorites                UserFavorite[]
   conversationParticipants ConversationParticipant[]
-  messages                Message[]
-  workforceRequests       WorkforceRequest[]         @relation("WorkforceRequestCreator")
+  messages                 Message[]
+  workforceRequests        WorkforceRequest[]        @relation("WorkforceRequestCreator")
+
+  @@index([tenantId])
 }
 
 enum VendorApprovalStatus {
@@ -171,6 +186,7 @@ enum WorkforceRateUnit {
 }
 
 model CustomRole {
+  tenantId    String?
   id          String   @id @default(uuid())
   name        String   @unique
   description String   @default("")
@@ -180,57 +196,63 @@ model CustomRole {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   users       User[]
+
+  @@index([tenantId])
 }
 
 model Document {
-  id              String              @id @default(uuid())
-  title           String
-  code            String              @unique
-  version         String              @default("1.0")
-  description     String?
-  content         String?
-  status          DocumentStatus      @default(DRAFT)
-  category        DocumentCategory
-  priority        DocumentPriority    @default(MEDIUM)
-  language        String              @default("English")
-  tags            String              @default("[]")
-  filePath        String?
-  fileName        String?
-  fileType        String?
-  fileSize        Int?
-  nextReviewDate  DateTime?
-  effectiveDate   DateTime?
-  archiveReason   String?
-  archivedAt      DateTime?
-  archivedBy      String?
-  allowDownload   Boolean             @default(true)
-  allowComments   Boolean             @default(true)
-  departmentId    String
-  department      Department          @relation(fields: [departmentId], references: [id])
-  authorId        String
-  author          User                @relation("DocumentAuthor", fields: [authorId], references: [id])
-  ownerId         String?
-  owner           User?               @relation("DocumentOwner", fields: [ownerId], references: [id])
-  templateId      String?
-  template        Template?           @relation(fields: [templateId], references: [id])
-  workflowId      String?
-  workflow        WorkflowRoute?      @relation(fields: [workflowId], references: [id])
-  isLocked            Boolean             @default(false)
-  signaturePlacement  String              @default("[]")
-  pageCount           Int                 @default(1)
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
-  history             DocumentHistory[]
-  signatures      Signature[]
-  versions        DocumentVersion[]
-  comments        DocumentComment[]
-  attachments     DocumentAttachment[]
-  favorites       UserFavorite[]
-  attachedInMessages Message[]          @relation("MessageDocument")
-  attachedInComments DocumentComment[]  @relation("CommentAttachedDocument")
+  tenantId           String?
+  id                 String               @id @default(uuid())
+  title              String
+  code               String               @unique
+  version            String               @default("1.0")
+  description        String?
+  content            String?
+  status             DocumentStatus       @default(DRAFT)
+  category           DocumentCategory
+  priority           DocumentPriority     @default(MEDIUM)
+  language           String               @default("English")
+  tags               String               @default("[]")
+  filePath           String?
+  fileName           String?
+  fileType           String?
+  fileSize           Int?
+  nextReviewDate     DateTime?
+  effectiveDate      DateTime?
+  archiveReason      String?
+  archivedAt         DateTime?
+  archivedBy         String?
+  allowDownload      Boolean              @default(true)
+  allowComments      Boolean              @default(true)
+  departmentId       String
+  department         Department           @relation(fields: [departmentId], references: [id])
+  authorId           String
+  author             User                 @relation("DocumentAuthor", fields: [authorId], references: [id])
+  ownerId            String?
+  owner              User?                @relation("DocumentOwner", fields: [ownerId], references: [id])
+  templateId         String?
+  template           Template?            @relation(fields: [templateId], references: [id])
+  workflowId         String?
+  workflow           WorkflowRoute?       @relation(fields: [workflowId], references: [id])
+  isLocked           Boolean              @default(false)
+  signaturePlacement String               @default("[]")
+  pageCount          Int                  @default(1)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  history            DocumentHistory[]
+  signatures         Signature[]
+  versions           DocumentVersion[]
+  comments           DocumentComment[]
+  attachments        DocumentAttachment[]
+  favorites          UserFavorite[]
+  attachedInMessages Message[]            @relation("MessageDocument")
+  attachedInComments DocumentComment[]    @relation("CommentAttachedDocument")
+
+  @@index([tenantId])
 }
 
 model DocumentVersion {
+  tenantId   String?
   id         String   @id @default(uuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id])
@@ -239,9 +261,12 @@ model DocumentVersion {
   changeNote String?
   createdBy  String
   createdAt  DateTime @default(now())
+
+  @@index([tenantId])
 }
 
 model DocumentHistory {
+  tenantId   String?
   id         String   @id @default(uuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id])
@@ -250,9 +275,12 @@ model DocumentHistory {
   userId     String?
   userName   String?
   createdAt  DateTime @default(now())
+
+  @@index([tenantId])
 }
 
 model DocumentComment {
+  tenantId           String?
   id                 String    @id @default(uuid())
   documentId         String
   document           Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -267,9 +295,12 @@ model DocumentComment {
   attachmentFileType String?
   status             String    @default("open")
   createdAt          DateTime  @default(now())
+
+  @@index([tenantId])
 }
 
 model DocumentAttachment {
+  tenantId   String?
   id         String   @id @default(uuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -278,27 +309,33 @@ model DocumentAttachment {
   fileSize   Int?
   fileType   String?
   createdAt  DateTime @default(now())
+
+  @@index([tenantId])
 }
 
 model Template {
-  id           String           @id @default(uuid())
-  name         String
-  description  String?
-  category     DocumentCategory
-  content      String?
-  version      String           @default("1.0")
-  status       String           @default("Active")
-  departmentId String?
-  department   Department?      @relation(fields: [departmentId], references: [id])
+  tenantId           String?
+  id                 String           @id @default(uuid())
+  name               String
+  description        String?
+  category           DocumentCategory
+  content            String?
+  version            String           @default("1.0")
+  status             String           @default("Active")
+  departmentId       String?
+  department         Department?      @relation(fields: [departmentId], references: [id])
   isActive           Boolean          @default(true)
   signaturePlacement String           @default("[]")
   pageCount          Int              @default(1)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   documents          Document[]
+
+  @@index([tenantId])
 }
 
 model WorkflowRoute {
+  tenantId    String?
   id          String         @id @default(uuid())
   name        String
   description String?
@@ -307,26 +344,32 @@ model WorkflowRoute {
   status      WorkflowStatus @default(DRAFT)
   createdAt   DateTime       @default(now())
   documents   Document[]
+
+  @@index([tenantId])
 }
 
 model Signature {
-  id         String   @id @default(uuid())
-  documentId String
-  document   Document @relation(fields: [documentId], references: [id])
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  fullName   String
-  position   String
-  signedAt   DateTime @default(now())
-  ipAddress  String?
+  tenantId    String?
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  fullName    String
+  position    String
+  signedAt    DateTime @default(now())
+  ipAddress   String?
   device      String?
   docHash     String?
   imagePath   String?
   placementId String?
   page        Int?
+
+  @@index([tenantId])
 }
 
 model AuditLog {
+  tenantId   String?
   id         String      @id @default(uuid())
   userId     String?
   user       User?       @relation(fields: [userId], references: [id])
@@ -338,9 +381,12 @@ model AuditLog {
   ipAddress  String?
   device     String?
   createdAt  DateTime    @default(now())
+
+  @@index([tenantId])
 }
 
 model Notification {
+  tenantId  String?
   id        String   @id @default(uuid())
   userId    String
   title     String
@@ -349,35 +395,39 @@ model Notification {
   isRead    Boolean  @default(false)
   link      String?
   createdAt DateTime @default(now())
+
+  @@index([tenantId])
 }
 
 model SystemSettings {
-  id                    String  @id @default("default")
-  companyName           String  @default("HOTERRA Hotels & Resorts")
-  companyAddress        String  @default("Baku, Azerbaijan")
-  timezone              String  @default("Asia/Baku")
-  dateFormat            String  @default("DD MMM YYYY")
-  timeFormat            String  @default("24h")
-  systemLanguage        String  @default("en")
-  enableVersioning      Boolean @default(true)
-  mandatoryReviewDate   Boolean @default(true)
-  requireDescription    Boolean @default(false)
-  allowDownload         Boolean @default(true)
-  autoLogoutMinutes     Int     @default(30)
-  recordsPerPage        Int     @default(20)
-  enable2FA             Boolean @default(true)
-  allowComments         Boolean @default(true)
-  showTooltips          Boolean @default(true)
-  defaultStartPage      String  @default("dashboard")
-  defaultDocSort        String  @default("updated_desc")
-  defaultDocStatus      String  @default("DRAFT")
-  notifyEmail           Boolean @default(true)
-  notifyPush            Boolean @default(true)
-  notifyInApp           Boolean @default(true)
-  extendedConfig        String  @default("{}")
+  tenantId            String? @unique
+  id                  String  @id @default(uuid())
+  companyName         String  @default("HOTERRA Hotels & Resorts")
+  companyAddress      String  @default("Baku, Azerbaijan")
+  timezone            String  @default("Asia/Baku")
+  dateFormat          String  @default("DD MMM YYYY")
+  timeFormat          String  @default("24h")
+  systemLanguage      String  @default("en")
+  enableVersioning    Boolean @default(true)
+  mandatoryReviewDate Boolean @default(true)
+  requireDescription  Boolean @default(false)
+  allowDownload       Boolean @default(true)
+  autoLogoutMinutes   Int     @default(30)
+  recordsPerPage      Int     @default(20)
+  enable2FA           Boolean @default(true)
+  allowComments       Boolean @default(true)
+  showTooltips        Boolean @default(true)
+  defaultStartPage    String  @default("dashboard")
+  defaultDocSort      String  @default("updated_desc")
+  defaultDocStatus    String  @default("DRAFT")
+  notifyEmail         Boolean @default(true)
+  notifyPush          Boolean @default(true)
+  notifyInApp         Boolean @default(true)
+  extendedConfig      String  @default("{}")
 }
 
 model UserFavorite {
+  tenantId   String?
   id         String   @id @default(uuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -386,9 +436,11 @@ model UserFavorite {
   createdAt  DateTime @default(now())
 
   @@unique([userId, documentId])
+  @@index([tenantId])
 }
 
 model Conversation {
+  tenantId     String?
   id           String                    @id @default(uuid())
   type         ConversationType
   departmentId String?
@@ -400,9 +452,11 @@ model Conversation {
   messages     Message[]
 
   @@unique([type, departmentId])
+  @@index([tenantId])
 }
 
 model ConversationParticipant {
+  tenantId       String?
   id             String       @id @default(uuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -412,9 +466,11 @@ model ConversationParticipant {
   joinedAt       DateTime     @default(now())
 
   @@unique([conversationId, userId])
+  @@index([tenantId])
 }
 
 model Message {
+  tenantId           String?
   id                 String       @id @default(uuid())
   conversationId     String
   conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -428,70 +484,81 @@ model Message {
   attachmentFileSize Int?
   attachmentFileType String?
   createdAt          DateTime     @default(now())
+
+  @@index([tenantId])
 }
 
 model WorkforcePosition {
-  id        String             @id @default(uuid())
-  name      String             @unique
+  tenantId     String?
+  id           String                     @id @default(uuid())
+  name         String                     @unique
   departmentId String?
-  department Department?       @relation(fields: [departmentId], references: [id])
-  isActive  Boolean            @default(true)
-  createdAt DateTime           @default(now())
-  requests  WorkforceRequest[]
-  templates WorkforceRequestTemplate[]
-  vendorRates VendorServiceRate[]
+  department   Department?                @relation(fields: [departmentId], references: [id])
+  isActive     Boolean                    @default(true)
+  createdAt    DateTime                   @default(now())
+  requests     WorkforceRequest[]
+  templates    WorkforceRequestTemplate[]
+  vendorRates  VendorServiceRate[]
   requestItems WorkforceRequestItem[]
+
+  @@index([tenantId])
 }
 
 model Vendor {
-  id           String             @id @default(uuid())
-  name         String             @unique
-  contactEmail String?
-  phone        String?
-  isApproved   Boolean            @default(true)
-  approvalStatus VendorApprovalStatus @default(APPROVED)
-  approvalSteps  String               @default("[]")
-  currentStepIndex Int                @default(0)
-  submittedById String?
-  submittedAt   DateTime?
-  approvedAt    DateTime?
-  rejectionReason String?
-  replacementRequested Boolean @default(false)
+  tenantId             String?
+  id                   String                       @id @default(uuid())
+  name                 String                       @unique
+  contactEmail         String?
+  phone                String?
+  isApproved           Boolean                      @default(true)
+  approvalStatus       VendorApprovalStatus         @default(APPROVED)
+  approvalSteps        String                       @default("[]")
+  currentStepIndex     Int                          @default(0)
+  submittedById        String?
+  submittedAt          DateTime?
+  approvedAt           DateTime?
+  rejectionReason      String?
+  replacementRequested Boolean                      @default(false)
   lowRatingAlertedAt   DateTime?
-  insuranceNotes String?
-  isActive     Boolean            @default(true)
-  createdAt    DateTime           @default(now())
-  selectedFor  WorkforceRequest[] @relation("SelectedVendor")
-  acceptedFor  WorkforceRequest[] @relation("AcceptedVendor")
-  invites      VendorInvite[]
-  invoices     VendorInvoice[]
-  serviceRates VendorServiceRate[]
-  approvalEvents VendorApprovalEvent[]
-  evaluations WorkforceQualityEvaluation[]
-  requestItems WorkforceRequestItem[]
+  insuranceNotes       String?
+  isActive             Boolean                      @default(true)
+  createdAt            DateTime                     @default(now())
+  selectedFor          WorkforceRequest[]           @relation("SelectedVendor")
+  acceptedFor          WorkforceRequest[]           @relation("AcceptedVendor")
+  invites              VendorInvite[]
+  invoices             VendorInvoice[]
+  serviceRates         VendorServiceRate[]
+  approvalEvents       VendorApprovalEvent[]
+  evaluations          WorkforceQualityEvaluation[]
+  requestItems         WorkforceRequestItem[]
+
+  @@index([tenantId])
 }
 
 model VendorServiceRate {
-  id           String            @id @default(uuid())
+  tenantId     String?
+  id           String                 @id @default(uuid())
   vendorId     String
-  vendor       Vendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor       Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   positionId   String
-  position     WorkforcePosition @relation(fields: [positionId], references: [id])
+  position     WorkforcePosition      @relation(fields: [positionId], references: [id])
   unit         WorkforceRateUnit
   price        Float
-  currency     String            @default("AZN")
-  uom          String            @default("Each")
+  currency     String                 @default("AZN")
+  uom          String                 @default("Each")
   requirements String?
-  isActive     Boolean           @default(true)
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  isActive     Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
   requests     WorkforceRequest[]
   requestItems WorkforceRequestItem[]
 
   @@unique([vendorId, positionId, unit])
+  @@index([tenantId])
 }
 
 model VendorApprovalEvent {
+  tenantId  String?
   id        String   @id @default(uuid())
   vendorId  String
   vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -502,9 +569,12 @@ model VendorApprovalEvent {
   userName  String?
   comment   String?
   signedAt  DateTime @default(now())
+
+  @@index([tenantId])
 }
 
 model WorkforceApprovalRoute {
+  tenantId     String?
   id           String     @id @default(uuid())
   departmentId String     @unique
   department   Department @relation(fields: [departmentId], references: [id])
@@ -512,9 +582,12 @@ model WorkforceApprovalRoute {
   steps        String
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([tenantId])
 }
 
 model DepartmentCasualBudget {
+  tenantId     String?
   id           String     @id @default(uuid())
   departmentId String
   department   Department @relation(fields: [departmentId], references: [id])
@@ -525,10 +598,12 @@ model DepartmentCasualBudget {
   updatedAt    DateTime   @updatedAt
 
   @@unique([departmentId, year, month])
+  @@index([tenantId])
 }
 
 model WorkforceSettings {
-  id                     String  @id @default("default")
+  tenantId               String? @unique
+  id                     String  @id @default(uuid())
   hotelName              String  @default("HOTERRA")
   hotelsJson             String  @default("[\"HOTERRA\"]")
   minLeadHours           Int     @default(24)
@@ -540,150 +615,163 @@ model WorkforceSettings {
 }
 
 model WorkforceRequest {
-  id                   String                 @id @default(uuid())
-  code                 String                 @unique
-  hotelName            String                 @default("HOTERRA")
-  departmentId         String
-  department           Department             @relation(fields: [departmentId], references: [id])
-  positionId           String
-  position             WorkforcePosition      @relation(fields: [positionId], references: [id])
-  vendorRateId         String?
-  vendorRate           VendorServiceRate?      @relation(fields: [vendorRateId], references: [id])
-  rateUnit             WorkforceRateUnit?
-  unitRate             Float?
-  rateCurrency         String?                 @default("AZN")
-  workDate             DateTime
-  endDate              DateTime
-  shift                WorkforceShift         @default(MORNING)
-  startTime            String?
-  endTime              String?
-  quantity             Int
-  comment              String?
-  vendorMode           WorkforceVendorMode    @default(DIRECT)
-  vendorId             String?
-  vendor               Vendor?                @relation("SelectedVendor", fields: [vendorId], references: [id])
-  acceptedVendorId     String?
-  acceptedVendor       Vendor?                @relation("AcceptedVendor", fields: [acceptedVendorId], references: [id])
-  broadcastVendorIds   String                 @default("[]")
-  status               WorkforceRequestStatus @default(PENDING)
-  currentStepIndex     Int                    @default(0)
-  approvalSteps        String                 @default("[]")
-  needsExtraApproval   Boolean                @default(false)
-  isUrgentOverride     Boolean                @default(false)
-  estimatedCost        Float?
-  createdById          String
-  createdBy            User                   @relation("WorkforceRequestCreator", fields: [createdById], references: [id])
-  actualQuantity       Int?
-  actualHours          Float?
-  actualCost           Float?
-  hodConfirmedAt       DateTime?
-  hodConfirmedById     String?
-  financeConfirmedAt   DateTime?
-  financeConfirmedById String?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  events               WorkforceRequestEvent[]
-  invites              VendorInvite[]
-  invoices             VendorInvoice[]
-  evaluations          WorkforceQualityEvaluation[]
-  items                WorkforceRequestItem[]
+  tenantId                String?
+  id                      String                            @id @default(uuid())
+  code                    String                            @unique
+  hotelName               String                            @default("HOTERRA")
+  departmentId            String
+  department              Department                        @relation(fields: [departmentId], references: [id])
+  positionId              String
+  position                WorkforcePosition                 @relation(fields: [positionId], references: [id])
+  vendorRateId            String?
+  vendorRate              VendorServiceRate?                @relation(fields: [vendorRateId], references: [id])
+  rateUnit                WorkforceRateUnit?
+  unitRate                Float?
+  rateCurrency            String?                           @default("AZN")
+  workDate                DateTime
+  endDate                 DateTime
+  shift                   WorkforceShift                    @default(MORNING)
+  startTime               String?
+  endTime                 String?
+  quantity                Int
+  comment                 String?
+  vendorMode              WorkforceVendorMode               @default(DIRECT)
+  vendorId                String?
+  vendor                  Vendor?                           @relation("SelectedVendor", fields: [vendorId], references: [id])
+  acceptedVendorId        String?
+  acceptedVendor          Vendor?                           @relation("AcceptedVendor", fields: [acceptedVendorId], references: [id])
+  broadcastVendorIds      String                            @default("[]")
+  status                  WorkforceRequestStatus            @default(PENDING)
+  currentStepIndex        Int                               @default(0)
+  approvalSteps           String                            @default("[]")
+  needsExtraApproval      Boolean                           @default(false)
+  isUrgentOverride        Boolean                           @default(false)
+  estimatedCost           Float?
+  createdById             String
+  createdBy               User                              @relation("WorkforceRequestCreator", fields: [createdById], references: [id])
+  actualQuantity          Int?
+  actualHours             Float?
+  actualCost              Float?
+  hodConfirmedAt          DateTime?
+  hodConfirmedById        String?
+  financeConfirmedAt      DateTime?
+  financeConfirmedById    String?
+  createdAt               DateTime                          @default(now())
+  updatedAt               DateTime                          @updatedAt
+  events                  WorkforceRequestEvent[]
+  invites                 VendorInvite[]
+  invoices                VendorInvoice[]
+  evaluations             WorkforceQualityEvaluation[]
+  items                   WorkforceRequestItem[]
   vendorCorrectionReviews WorkforceVendorCorrectionReview[]
+
+  @@index([tenantId])
 }
 
 model WorkforceRequestItem {
-  id            String             @id @default(uuid())
-  requestId     String
-  request       WorkforceRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  positionId    String
-  position      WorkforcePosition  @relation(fields: [positionId], references: [id])
-  rateUnit      WorkforceRateUnit
-  quantity      Int
-  hours         Float?
-  vendorRateId  String?
-  vendorRate    VendorServiceRate? @relation(fields: [vendorRateId], references: [id])
-  vendorId      String?
-  vendor        Vendor?            @relation(fields: [vendorId], references: [id])
-  unitRate      Float?
-  rateCurrency  String?            @default("AZN")
-  estimatedCost Float?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  tenantId          String?
+  id                String                      @id @default(uuid())
+  requestId         String
+  request           WorkforceRequest            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  positionId        String
+  position          WorkforcePosition           @relation(fields: [positionId], references: [id])
+  rateUnit          WorkforceRateUnit
+  quantity          Int
+  hours             Float?
+  vendorRateId      String?
+  vendorRate        VendorServiceRate?          @relation(fields: [vendorRateId], references: [id])
+  vendorId          String?
+  vendor            Vendor?                     @relation(fields: [vendorId], references: [id])
+  unitRate          Float?
+  rateCurrency      String?                     @default("AZN")
+  estimatedCost     Float?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
   vendorCorrections WorkforceVendorCorrection[]
 
   @@index([requestId])
   @@index([vendorId])
+  @@index([tenantId])
 }
 
 model WorkforceVendorCorrectionReview {
-  id                String                       @id @default(uuid())
-  requestId         String
-  request           WorkforceRequest             @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  status            String                       @default("DRAFT")
-  submittedById     String?
-  submittedByName   String?
-  submittedAt       DateTime?
-  fdApprovedById    String?
-  fdApprovedByName  String?
-  fdApprovedAt      DateTime?
-  fdComment         String?
-  gmApprovedById    String?
-  gmApprovedByName  String?
-  gmApprovedAt      DateTime?
-  gmComment         String?
-  returnComment     String?
-  returnedById      String?
-  returnedByName    String?
-  returnedAt        DateTime?
-  appliedAt         DateTime?
-  createdAt         DateTime                     @default(now())
-  updatedAt         DateTime                     @updatedAt
-  corrections       WorkforceVendorCorrection[]
+  tenantId         String?
+  id               String                      @id @default(uuid())
+  requestId        String
+  request          WorkforceRequest            @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  status           String                      @default("DRAFT")
+  submittedById    String?
+  submittedByName  String?
+  submittedAt      DateTime?
+  fdApprovedById   String?
+  fdApprovedByName String?
+  fdApprovedAt     DateTime?
+  fdComment        String?
+  gmApprovedById   String?
+  gmApprovedByName String?
+  gmApprovedAt     DateTime?
+  gmComment        String?
+  returnComment    String?
+  returnedById     String?
+  returnedByName   String?
+  returnedAt       DateTime?
+  appliedAt        DateTime?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  corrections      WorkforceVendorCorrection[]
 
   @@index([requestId, status])
+  @@index([tenantId])
 }
 
 model WorkforceVendorCorrection {
-  id                  String                           @id @default(uuid())
-  reviewId            String
-  review              WorkforceVendorCorrectionReview  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  itemId              String
-  item                WorkforceRequestItem             @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  originalVendorId    String?
-  originalVendorName  String?
-  originalRateId      String?
-  originalUnitRate    Float?
-  originalCost        Float?
-  proposedVendorId    String
-  proposedVendorName  String
-  proposedRateId      String
-  proposedUnitRate    Float
-  proposedCurrency    String                           @default("AZN")
-  proposedCost        Float
-  comment             String
-  createdAt           DateTime                         @default(now())
-  updatedAt           DateTime                         @updatedAt
+  tenantId           String?
+  id                 String                          @id @default(uuid())
+  reviewId           String
+  review             WorkforceVendorCorrectionReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  itemId             String
+  item               WorkforceRequestItem            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  originalVendorId   String?
+  originalVendorName String?
+  originalRateId     String?
+  originalUnitRate   Float?
+  originalCost       Float?
+  proposedVendorId   String
+  proposedVendorName String
+  proposedRateId     String
+  proposedUnitRate   Float
+  proposedCurrency   String                          @default("AZN")
+  proposedCost       Float
+  comment            String
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
 
   @@unique([reviewId, itemId])
   @@index([itemId])
+  @@index([tenantId])
 }
 
 model WorkforceQualityEvaluation {
+  tenantId               String?
   id                     String                   @id @default(uuid())
   requestId              String
   request                WorkforceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
   vendorId               String
   vendor                 Vendor                   @relation(fields: [vendorId], references: [id])
-  phase                   WorkforceEvaluationPhase
+  phase                  WorkforceEvaluationPhase
   overallScore           Int
-  notes                   String?
+  notes                  String?
   replacementRecommended Boolean                  @default(false)
   createdById            String
   createdByName          String
   createdByRole          Role
-  createdAt              DateTime                  @default(now())
+  createdAt              DateTime                 @default(now())
+
+  @@index([tenantId])
 }
 
 model WorkforceRequestEvent {
+  tenantId  String?
   id        String           @id @default(uuid())
   requestId String
   request   WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -692,9 +780,12 @@ model WorkforceRequestEvent {
   userId    String?
   userName  String?
   createdAt DateTime         @default(now())
+
+  @@index([tenantId])
 }
 
 model WorkforceRequestTemplate {
+  tenantId        String?
   id              String              @id @default(uuid())
   name            String
   departmentId    String?
@@ -712,9 +803,12 @@ model WorkforceRequestTemplate {
   lastGeneratedAt DateTime?
   hotelName       String?
   createdAt       DateTime            @default(now())
+
+  @@index([tenantId])
 }
 
 model VendorInvite {
+  tenantId    String?
   id          String           @id @default(uuid())
   token       String           @unique
   requestId   String
@@ -725,9 +819,12 @@ model VendorInvite {
   sentAt      DateTime         @default(now())
   respondedAt DateTime?
   expiresAt   DateTime
+
+  @@index([tenantId])
 }
 
 model VendorInvoice {
+  tenantId      String?
   id            String           @id @default(uuid())
   requestId     String
   request       WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -741,9 +838,12 @@ model VendorInvoice {
   matchedAt     DateTime?
   notes         String?
   createdAt     DateTime         @default(now())
+
+  @@index([tenantId])
 }
 
 model EmailOutbox {
+  tenantId   String?
   id         String    @id @default(uuid())
   toEmail    String
   subject    String
@@ -753,4 +853,6 @@ model EmailOutbox {
   status     String    @default("QUEUED")
   sentAt     DateTime?
   createdAt  DateTime  @default(now())
+
+  @@index([tenantId])
 }

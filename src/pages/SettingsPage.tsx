@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Info,
   X,
+  Globe2,
 } from 'lucide-react';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { SwitchRow } from '@/components/ui/Switch';
@@ -55,11 +56,27 @@ export function SettingsPage() {
   const [maintenanceLoading, setMaintenanceLoading] = useState<string | null>(null);
   const [logs, setLogs] = useState<AuditLog[] | null>(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [slugStatus, setSlugStatus] = useState<'checking' | 'available' | 'taken' | 'invalid' | null>(null);
 
   useEffect(() => {
     api.getSettings().then(setSettings).catch(console.error);
     api.getSettingsStats().then(setStats).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    const slug = settings?.tenantSlug?.trim().toLowerCase();
+    if (!slug) {
+      setSlugStatus('invalid');
+      return;
+    }
+    setSlugStatus('checking');
+    const timer = window.setTimeout(() => {
+      api.checkTenantSlug(slug)
+        .then((result) => setSlugStatus(result.available ? 'available' : result.reason === 'taken' ? 'taken' : 'invalid'))
+        .catch(() => setSlugStatus(null));
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [settings?.tenantSlug]);
 
   const visibleCategories = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -99,6 +116,10 @@ export function SettingsPage() {
       setSettings(updated);
       setSaved(true);
       api.getSettingsStats().then(setStats).catch(console.error);
+      const hostname = window.location.hostname.toLowerCase();
+      if (hostname.endsWith('.hoterra.net') && hostname !== `${updated.tenantSlug}.hoterra.net`) {
+        window.location.href = `${updated.tenantUrl}/settings`;
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -271,6 +292,31 @@ export function SettingsPage() {
           {activeCategory === 'general' && (
             <>
               <SettingsSection title="Organization Information">
+                <SettingsField label="Hotel / Tenant Name">
+                  <input value={settings.tenantName} onChange={(e) => update('tenantName', e.target.value)} className="input" />
+                </SettingsField>
+                <SettingsField label="Hotel Subdomain">
+                  <div>
+                    <div className="flex overflow-hidden rounded-lg border border-gray-200 bg-white focus-within:border-hoterra-steel focus-within:ring-1 focus-within:ring-hoterra-steel">
+                      <span className="flex items-center border-r border-gray-200 bg-gray-50 px-3 text-gray-400">
+                        <Globe2 className="h-4 w-4" />
+                      </span>
+                      <input
+                        value={settings.tenantSlug}
+                        onChange={(e) => update('tenantSlug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                        className="min-w-0 flex-1 px-3 py-2.5 text-sm outline-none"
+                        placeholder="hotel-slug"
+                      />
+                      <span className="flex items-center bg-gray-50 px-3 text-sm text-gray-500">.hoterra.net</span>
+                    </div>
+                    <p className={`mt-1.5 text-xs ${slugStatus === 'available' ? 'text-green-600' : slugStatus === 'checking' ? 'text-gray-400' : 'text-red-600'}`}>
+                      {slugStatus === 'checking' && 'Checking availability...'}
+                      {slugStatus === 'available' && `${settings.tenantSlug}.hoterra.net is available and will activate when saved.`}
+                      {slugStatus === 'taken' && 'This subdomain is already assigned to another hotel.'}
+                      {slugStatus === 'invalid' && 'Use lowercase letters, numbers and hyphens only.'}
+                    </p>
+                  </div>
+                </SettingsField>
                 <SettingsField label="Company Name">
                   <input value={settings.companyName} onChange={(e) => update('companyName', e.target.value)} className="input" />
                 </SettingsField>

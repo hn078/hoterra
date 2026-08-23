@@ -1,6 +1,16 @@
 class ApiClient {
   private token: string | null = null;
 
+  private get tenantSlug(): string {
+    if (typeof window === 'undefined') return 'hgi';
+    const hostname = window.location.hostname.toLowerCase();
+    if (hostname.endsWith('.hoterra.net')) {
+      const slug = hostname.slice(0, -'.hoterra.net'.length);
+      if (slug && !slug.includes('.') && !['www', 'app'].includes(slug)) return slug;
+    }
+    return 'hgi';
+  }
+
   private get baseUrl(): string {
     if (typeof window !== 'undefined' && window.__HOTERRA_API__) {
       return window.__HOTERRA_API__.replace(/\/$/, '');
@@ -32,6 +42,7 @@ class ApiClient {
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'X-Tenant-Slug': this.tenantSlug,
       ...(options.headers as Record<string, string>),
     };
 
@@ -247,7 +258,10 @@ class ApiClient {
   private async download(path: string, filename: string) {
     const token = this.getToken();
     const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {
+        'X-Tenant-Slug': this.tenantSlug,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     });
     if (!res.ok) throw new Error('Export failed');
     const blob = await res.blob();
@@ -369,6 +383,12 @@ class ApiClient {
       }>;
       columns: string[];
     }>('/roles');
+  }
+
+  checkTenantSlug(slug: string) {
+    return this.request<{ slug: string; available: boolean; reason: 'invalid' | 'taken' | null; url: string }>(
+      `/settings/tenant/slug-availability?slug=${encodeURIComponent(slug)}`
+    );
   }
 
   createRole(data: { name: string; description?: string; baseRole: import('@/types').Role }) {

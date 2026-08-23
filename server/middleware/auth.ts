@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 
 export interface AuthUser {
   id: string;
+  tenantId: string;
   email: string;
   role: Role;
   firstName: string;
@@ -33,7 +34,11 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 
   try {
     const token = header.slice(7);
-    req.user = jwt.verify(token, JWT_SECRET) as AuthUser;
+    const user = jwt.verify(token, JWT_SECRET) as AuthUser;
+    if (!req.tenant || user.tenantId !== req.tenant.id) {
+      return res.status(401).json({ error: 'Token is not valid for this hotel workspace' });
+    }
+    req.user = user;
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid token' });

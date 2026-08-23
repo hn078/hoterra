@@ -15,6 +15,9 @@
 - Настройки системы
 - Журнал аудита (API)
 - Windows desktop приложение (Electron)
+- Multi-tenant hotel workspaces with isolated data and `*.hoterra.net` subdomains
+
+Multi-tenant architecture and deployment details: [`docs/MULTI_TENANCY.md`](docs/MULTI_TENANCY.md).
 
 ## Модуль: Casual Workforce Management ✅ v1
 

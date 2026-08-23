@@ -118,11 +118,8 @@ export function parseHotels(raw: string | null | undefined): string[] {
 }
 
 export async function getWorkforceSettings() {
-  const row = await prisma.workforceSettings.upsert({
-    where: { id: 'default' },
-    update: {},
-    create: { id: 'default' },
-  });
+  const row = await prisma.workforceSettings.findFirst()
+    ?? await prisma.workforceSettings.create({ data: {} });
   return {
     ...row,
     hotels: parseHotels(row.hotelsJson),

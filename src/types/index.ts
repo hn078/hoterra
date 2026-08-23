@@ -278,6 +278,10 @@ export interface DashboardStats {
 }
 
 export interface SystemSettings {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  tenantUrl: string;
   companyName: string;
   companyAddress: string;
   timezone: string;
