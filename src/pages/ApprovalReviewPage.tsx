@@ -46,7 +46,7 @@ function downloadAttachment(filePath: string) {
   const base =
     typeof window !== 'undefined' && window.__HOTERRA_API__
       ? window.__HOTERRA_API__.replace('/api', '')
-      : 'http://localhost:3001';
+      : 'http://127.0.0.1:3211';
   window.open(`${base}${filePath}`, '_blank');
 }
 

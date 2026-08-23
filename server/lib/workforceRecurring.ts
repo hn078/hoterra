@@ -1,4 +1,4 @@
-import { Role, WorkforceRequestStatus, WorkforceVendorMode } from '@prisma/client';
+import { Role, WorkforceRateUnit, WorkforceRequestStatus, WorkforceVendorMode } from '@prisma/client';
 import { prisma } from '../db';
 import {
   addEvent,
@@ -39,8 +39,8 @@ export async function runRecurringTemplates() {
 
   for (const t of templates) {
     if (wasGeneratedToday(t.lastGeneratedAt)) continue;
-    if (!t.departmentId || !t.positionId || !t.vendorId) {
-      console.warn(`[recurring] skip template ${t.name}: missing department/position/vendor`);
+    if (!t.departmentId || !t.positionId) {
+      console.warn(`[recurring] skip template ${t.name}: missing department/position`);
       continue;
     }
 
@@ -75,17 +75,20 @@ export async function runRecurringTemplates() {
         departmentId: t.departmentId,
         positionId: t.positionId,
         workDate,
+        endDate: workDate,
+        rateUnit: WorkforceRateUnit.HOURLY,
         shift: t.shift,
         quantity: t.quantity,
         comment: t.comment
           ? `${t.comment} (auto from template: ${t.name})`
           : `Auto-generated from recurring template: ${t.name}`,
         vendorMode: t.vendorMode || WorkforceVendorMode.DIRECT,
-        vendorId: t.vendorId,
+        vendorId: null,
         status: WorkforceRequestStatus.PENDING,
         approvalSteps: serializeApprovalSteps(steps),
         estimatedCost: cost,
         createdById: creator.id,
+        items: { create: { positionId: t.positionId, rateUnit: WorkforceRateUnit.HOURLY, quantity: t.quantity, hours: settings.estimatedHoursPerShift, estimatedCost: cost } },
       },
     });
 

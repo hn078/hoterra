@@ -11,11 +11,14 @@ import type { AuthUser } from '../middleware/auth';
 export interface ApprovalStep {
   role: Role;
   label: string;
+  approverUserId?: string;
+  approverDepartmentId?: string;
 }
 
 export const DEFAULT_APPROVAL_STEPS: ApprovalStep[] = [
   { role: Role.HOD, label: 'Head of Department' },
-  { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+  { role: Role.HOD, label: 'Human Resources — Head of Department' },
+  { role: Role.FINANCE_DIRECTOR, label: 'Finance Director' },
   { role: Role.GENERAL_MANAGER, label: 'General Manager' },
 ];
 
@@ -46,6 +49,7 @@ const requestInclude = {
   position: true,
   vendor: true,
   acceptedVendor: true,
+  vendorRate: { include: { vendor: true, position: true } },
   createdBy: {
     select: { id: true, firstName: true, lastName: true, email: true, role: true },
   },
@@ -56,6 +60,23 @@ const requestInclude = {
   },
   invoices: {
     include: { vendor: true },
+    orderBy: { createdAt: 'desc' as const },
+  },
+  evaluations: {
+    include: { vendor: true },
+    orderBy: { createdAt: 'desc' as const },
+  },
+  items: {
+    include: { position: true, vendor: true, vendorRate: { include: { vendor: true, position: true } } },
+    orderBy: { createdAt: 'asc' as const },
+  },
+  vendorCorrectionReviews: {
+    include: {
+      corrections: {
+        include: { item: { include: { position: true } } },
+        orderBy: { createdAt: 'asc' as const },
+      },
+    },
     orderBy: { createdAt: 'desc' as const },
   },
 } satisfies Prisma.WorkforceRequestInclude;
@@ -112,9 +133,30 @@ export async function resolveApprovalSteps(departmentId: string): Promise<Approv
   const route = await prisma.workforceApprovalRoute.findUnique({
     where: { departmentId },
   });
-  if (!route) return [...DEFAULT_APPROVAL_STEPS];
-  const steps = parseApprovalSteps(route.steps);
-  return steps.length > 0 ? steps : [...DEFAULT_APPROVAL_STEPS];
+  const steps = route ? parseApprovalSteps(route.steps) : [...DEFAULT_APPROVAL_STEPS];
+  return ensureRequiredApprovalSteps(steps.length > 0 ? steps : [...DEFAULT_APPROVAL_STEPS]);
+}
+
+export async function ensureRequiredApprovalSteps(steps: ApprovalStep[]): Promise<ApprovalStep[]> {
+  const humanResources = await prisma.department.findFirst({
+    where: { OR: [{ code: 'HR' }, { name: { equals: 'Human Resources', mode: 'insensitive' } }] },
+    select: { id: true },
+  });
+  const normalized = steps.map((step) => ({ ...step }));
+  const financeIndex = normalized.findIndex((step) => step.role === Role.FINANCE_DIRECTOR);
+  const hasHumanResourcesHod = normalized.some((step) =>
+    step.role === Role.HOD && (step.approverDepartmentId === humanResources?.id || /human resources/i.test(step.label))
+  );
+  const existingHumanResourcesStep = normalized.find((step) => step.role === Role.HOD && /human resources/i.test(step.label));
+  if (existingHumanResourcesStep && humanResources) existingHumanResourcesStep.approverDepartmentId = humanResources.id;
+  if (!hasHumanResourcesHod) {
+    normalized.splice(financeIndex >= 0 ? financeIndex : normalized.length, 0, {
+      role: Role.HOD,
+      label: 'Human Resources — Head of Department',
+      ...(humanResources ? { approverDepartmentId: humanResources.id } : {}),
+    });
+  }
+  return normalized;
 }
 
 export function estimateCost(
@@ -206,9 +248,11 @@ export function canApproveCurrentStep(
   const steps = parseApprovalSteps(request.approvalSteps);
   const step = steps[request.currentStepIndex];
   if (!step) return false;
+  if (step.approverUserId && user.id !== step.approverUserId) return false;
+  if (step.approverDepartmentId && user.departmentId !== step.approverDepartmentId) return false;
   if (user.role !== step.role) return false;
   if (step.role === Role.HOD) {
-    return !user.departmentId || user.departmentId === request.departmentId;
+    return !user.departmentId || user.departmentId === (step.approverDepartmentId || request.departmentId);
   }
   return true;
 }
@@ -225,15 +269,17 @@ export async function notifyApprovers(
   const { appUrl, queueEmail } = await import('./mail');
 
   const users = await prisma.user.findMany({
-    where: {
-      isActive: true,
-      role: step.role === Role.HOD
-        ? { in: [Role.HOD, Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] }
-        : { in: [step.role, Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] },
-      ...(step.role === Role.HOD
-        ? { OR: [{ departmentId: request.departmentId }, { role: { in: [Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] } }] }
-        : {}),
-    },
+    where: step.approverUserId
+      ? { isActive: true, OR: [{ id: step.approverUserId }, { role: { in: [Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] } }] }
+      : {
+          isActive: true,
+          role: step.role === Role.HOD
+            ? { in: [Role.HOD, Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] }
+            : { in: [step.role, Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] },
+          ...(step.role === Role.HOD
+            ? { OR: [{ departmentId: step.approverDepartmentId || request.departmentId }, { role: { in: [Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR] } }] }
+            : {}),
+        },
     select: { id: true, email: true, firstName: true },
   });
 
@@ -295,7 +341,13 @@ export function formatRequest(req: {
   department: WorkforceRequestFull['department'];
   positionId: string;
   position: WorkforceRequestFull['position'];
+  vendorRateId: string | null;
+  vendorRate: WorkforceRequestFull['vendorRate'];
+  rateUnit: WorkforceRequestFull['rateUnit'];
+  unitRate: number | null;
+  rateCurrency: string | null;
   workDate: Date;
+  endDate: Date;
   shift: WorkforceRequestFull['shift'];
   startTime: string | null;
   endTime: string | null;
@@ -326,6 +378,9 @@ export function formatRequest(req: {
   events: WorkforceRequestFull['events'];
   invites?: WorkforceRequestFull['invites'];
   invoices?: WorkforceRequestFull['invoices'];
+  evaluations?: WorkforceRequestFull['evaluations'];
+  items?: WorkforceRequestFull['items'];
+  vendorCorrectionReviews?: WorkforceRequestFull['vendorCorrectionReviews'];
 }) {
   return {
     id: req.id,
@@ -335,7 +390,13 @@ export function formatRequest(req: {
     department: req.department,
     positionId: req.positionId,
     position: req.position,
+    vendorRateId: req.vendorRateId,
+    vendorRate: req.vendorRate,
+    rateUnit: req.rateUnit,
+    unitRate: req.unitRate,
+    rateCurrency: req.rateCurrency,
     workDate: req.workDate.toISOString(),
+    endDate: req.endDate.toISOString(),
     shift: req.shift,
     startTime: req.startTime,
     endTime: req.endTime,
@@ -394,6 +455,30 @@ export function formatRequest(req: {
       matchedAt: inv.matchedAt?.toISOString() ?? null,
       notes: inv.notes,
       createdAt: inv.createdAt.toISOString(),
+    })),
+    items: (req.items || []).map((item) => ({
+      ...item,
+      createdAt: item.createdAt.toISOString(),
+      updatedAt: item.updatedAt.toISOString(),
+    })),
+    evaluations: (req.evaluations || []).map((evaluation) => ({
+      ...evaluation,
+      createdAt: evaluation.createdAt.toISOString(),
+    })),
+    vendorCorrectionReviews: (req.vendorCorrectionReviews || []).map((review) => ({
+      ...review,
+      submittedAt: review.submittedAt?.toISOString() ?? null,
+      fdApprovedAt: review.fdApprovedAt?.toISOString() ?? null,
+      gmApprovedAt: review.gmApprovedAt?.toISOString() ?? null,
+      returnedAt: review.returnedAt?.toISOString() ?? null,
+      appliedAt: review.appliedAt?.toISOString() ?? null,
+      createdAt: review.createdAt.toISOString(),
+      updatedAt: review.updatedAt.toISOString(),
+      corrections: review.corrections.map((correction) => ({
+        ...correction,
+        createdAt: correction.createdAt.toISOString(),
+        updatedAt: correction.updatedAt.toISOString(),
+      })),
     })),
   };
 }

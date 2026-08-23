@@ -65,7 +65,7 @@ export function createApp() {
   return app;
 }
 
-export function startServer(port = Number(process.env.PORT) || 3001) {
+export function startServer(port = Number(process.env.PORT) || 3211) {
   const app = createApp();
 
   return new Promise<{ port: number }>((resolve, reject) => {

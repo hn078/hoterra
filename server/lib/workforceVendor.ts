@@ -12,8 +12,10 @@ export async function dispatchToVendors(requestId: string) {
   const request = await loadRequest(requestId);
   if (!request || request.status !== WorkforceRequestStatus.SENT_TO_VENDOR) return [];
 
-  const vendorIds =
-    request.vendorMode === WorkforceVendorMode.BROADCAST
+  const itemVendorIds = [...new Set(request.items.map((item) => item.vendorId).filter((id): id is string => Boolean(id)))];
+  const vendorIds = itemVendorIds.length
+    ? itemVendorIds
+    : request.vendorMode === WorkforceVendorMode.BROADCAST
       ? parseVendorIds(request.broadcastVendorIds)
       : request.vendorId
         ? [request.vendorId]
@@ -29,6 +31,7 @@ export async function dispatchToVendors(requestId: string) {
   const invites = [];
 
   for (const vendor of vendors) {
+    const vendorItems = request.items.filter((item) => item.vendorId === vendor.id);
     const existing = await prisma.vendorInvite.findFirst({
       where: { requestId, vendorId: vendor.id, status: 'PENDING' },
     });
@@ -59,10 +62,9 @@ export async function dispatchToVendors(requestId: string) {
         `Code: ${request.code}`,
         `Hotel: ${request.hotelName}`,
         `Department: ${request.department.name}`,
-        `Position: ${request.position.name}`,
-        `Date: ${request.workDate.toISOString().slice(0, 10)}`,
-        `Shift: ${request.shift}`,
-        `Quantity: ${request.quantity}`,
+        `Period: ${request.workDate.toISOString().slice(0, 10)} — ${request.endDate.toISOString().slice(0, 10)}`,
+        'Service lines:',
+        ...(vendorItems.length ? vendorItems.map((item) => `- ${item.position.name}: ${item.quantity} × ${item.rateUnit}${item.hours ? `, ${item.hours} hour(s)` : ''}`) : [`- ${request.position.name}: ${request.quantity}`]),
         request.comment ? `Comment: ${request.comment}` : '',
         '',
         `Accept or decline here (no login required):`,
@@ -96,6 +98,7 @@ export async function getInviteByToken(token: string) {
         include: {
           department: true,
           position: true,
+          items: { include: { position: true, vendor: true } },
         },
       },
     },
@@ -148,28 +151,27 @@ export async function respondVendorInvite(
     return { ok: true as const, status: 'DECLINED' as const };
   }
 
-  // Accept — first wins for broadcast
+  // Each automatically selected vendor accepts its own service lines.
+  const selectedVendorIds = [...new Set(invite.request.items.map((item) => item.vendorId).filter(Boolean))];
+  const isMultiVendorOrder = selectedVendorIds.length > 1;
   await prisma.$transaction(async (tx) => {
     await tx.vendorInvite.update({
       where: { id: invite.id },
       data: { status: 'ACCEPTED', respondedAt: new Date() },
     });
-    await tx.vendorInvite.updateMany({
-      where: {
-        requestId: invite.requestId,
-        id: { not: invite.id },
-        status: 'PENDING',
-      },
-      data: { status: 'LOST', respondedAt: new Date() },
-    });
-    await tx.workforceRequest.update({
-      where: { id: invite.requestId },
-      data: {
-        status: WorkforceRequestStatus.VENDOR_ACCEPTED,
-        acceptedVendorId: invite.vendorId,
-      },
-    });
+    if (!isMultiVendorOrder && invite.request.vendorMode === WorkforceVendorMode.BROADCAST) {
+      await tx.vendorInvite.updateMany({ where: { requestId: invite.requestId, id: { not: invite.id }, status: 'PENDING' }, data: { status: 'LOST', respondedAt: new Date() } });
+    }
   });
+
+  const pendingInvites = await prisma.vendorInvite.count({ where: { requestId: invite.requestId, status: 'PENDING' } });
+  if (pendingInvites === 0) {
+    const declinedInvites = await prisma.vendorInvite.count({ where: { requestId: invite.requestId, status: 'DECLINED' } });
+    await prisma.workforceRequest.update({
+      where: { id: invite.requestId },
+      data: { status: declinedInvites ? WorkforceRequestStatus.VENDOR_DECLINED : WorkforceRequestStatus.VENDOR_ACCEPTED, acceptedVendorId: invite.vendorId },
+    });
+  }
 
   await addEvent(
     invite.requestId,
@@ -181,8 +183,8 @@ export async function respondVendorInvite(
   await prisma.notification.create({
     data: {
       userId: invite.request.createdById,
-      title: 'Vendor accepted order',
-      message: `${invite.vendor.name} accepted ${invite.request.code}`,
+      title: 'Vendor response received',
+      message: `${invite.request.code}: a vendor accepted the order. Vendor details will be available after Procurement confirms all vendors.`,
       type: 'workforce',
       link: `/workforce/${invite.requestId}`,
     },

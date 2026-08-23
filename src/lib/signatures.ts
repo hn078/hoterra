@@ -18,7 +18,7 @@ export function uploadUrl(path: string | null | undefined): string {
   const apiBase =
     typeof window !== 'undefined' && window.__HOTERRA_API__
       ? window.__HOTERRA_API__
-      : 'http://localhost:3001/api';
+      : 'http://127.0.0.1:3211/api';
   const origin = apiBase.replace(/\/api\/?$/, '');
   return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
 }

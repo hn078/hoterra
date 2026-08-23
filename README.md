@@ -57,6 +57,42 @@ npm run db:seed
 npm run dev
 ```
 
+## PostgreSQL в Docker
+
+База данных работает в контейнере `hoterra-postgres`, а данные сохраняются в
+Docker volume `hoterra_hoterra_postgres_data`.
+
+```bash
+# Запустить PostgreSQL
+npm run db:up
+
+# Синхронизировать схему Prisma
+npm run db:sync
+
+# Запустить приложение
+npm run dev
+
+# Остановить PostgreSQL (данные сохраняются)
+npm run db:down
+```
+
+Подключение для локальной разработки:
+
+```text
+Host: 127.0.0.1
+Port: 5432
+Database: hoterra
+User: hoterra
+Password: hoterra_dev_password
+```
+
+Исходная SQLite база `prisma/dev.db` сохранена как резервная копия. Повторный
+импорт из неё (перезаписывает данные PostgreSQL):
+
+```bash
+npm run db:migrate:sqlite
+```
+
 ## Демо-аккаунты
 
 | Роль | Email | Пароль |

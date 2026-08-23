@@ -65,7 +65,7 @@ Reference map: `docs/page-designs/README.md`
 - GM: `fuad.ahmadov@hoterra.az` / `password123`
 
 ```bash
-npm run dev:server   # API :3001
+npm run dev:server   # API :3211
 npm run dev:vite     # UI :5173
 npm run db:seed      # Reset demo data
 ```

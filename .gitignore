@@ -9,4 +9,5 @@ prisma/dev.db-journal
 .env
 .env.local
 *.log
+backups/
 .DS_Store

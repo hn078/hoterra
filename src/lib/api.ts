@@ -5,7 +5,7 @@ class ApiClient {
     if (typeof window !== 'undefined' && window.__HOTERRA_API__) {
       return window.__HOTERRA_API__;
     }
-    return 'http://localhost:3001/api';
+    return 'http://127.0.0.1:3211/api';
   }
 
   setToken(token: string | null) {
@@ -359,10 +359,19 @@ class ApiClient {
         description: string;
         userCount: number;
         isSystem: boolean;
+        baseRole?: import('@/types').Role;
         permissions: Record<string, boolean[]>;
       }>;
       columns: string[];
     }>('/roles');
+  }
+
+  createRole(data: { name: string; description?: string; baseRole: import('@/types').Role }) {
+    return this.request('/roles', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  updateRole(id: string, data: { name?: string; description?: string; permissions?: Record<string, boolean[]> }) {
+    return this.request(`/roles/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
   createUser(data: {
@@ -371,6 +380,7 @@ class ApiClient {
     firstName: string;
     lastName: string;
     role: string;
+    customRoleId?: string;
     departmentId?: string;
   }) {
     return this.request<import('@/types').User>('/users', {
@@ -667,18 +677,142 @@ class ApiClient {
     });
   }
 
-  createWorkforcePosition(name: string) {
+  createWorkforcePosition(name: string, departmentId: string) {
     return this.request('/workforce/positions', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, departmentId }),
     });
   }
 
-  createWorkforceVendor(data: { name: string; contactEmail?: string; phone?: string }) {
+  createWorkforceVendor(data: { name: string; contactEmail?: string; phone?: string; insuranceNotes?: string }) {
     return this.request('/workforce/vendors', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  confirmWorkforceProcurement(id: string) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${id}/procurement-confirm`,
+      { method: 'POST' }
+    );
+  }
+
+  correctWorkforceItemVendor(
+    requestId: string,
+    itemId: string,
+    data: { vendorRateId: string; comment: string }
+  ) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${requestId}/items/${itemId}/vendor-correction`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  submitWorkforceVendorCorrectionReview(requestId: string) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${requestId}/vendor-correction-review/submit`,
+      { method: 'POST' }
+    );
+  }
+
+  markWorkforceVendorsReadyForExecution(requestId: string) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${requestId}/vendors-ready-for-execution`,
+      { method: 'POST' }
+    );
+  }
+
+  decideWorkforceVendorCorrectionReview(
+    requestId: string,
+    reviewId: string,
+    decision: 'approve' | 'return',
+    comment?: string
+  ) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${requestId}/vendor-correction-review/${reviewId}/decision`,
+      { method: 'POST', body: JSON.stringify({ decision, comment }) }
+    );
+  }
+
+  returnWorkforceRequestToHodByFinance(id: string, comment: string) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${id}/finance-return-to-hod`,
+      { method: 'POST', body: JSON.stringify({ comment }) }
+    );
+  }
+
+  createWorkforceEvaluation(
+    id: string,
+    data: {
+      phase: 'ONGOING' | 'FINAL';
+      overallScore: number;
+      notes?: string;
+      replacementRecommended?: boolean;
+    }
+  ) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${id}/evaluations`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  returnWorkforceRequestForRevision(id: string, comment: string) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${id}/return-for-revision`,
+      { method: 'POST', body: JSON.stringify({ comment }) }
+    );
+  }
+
+  resubmitWorkforceRequest(
+    id: string,
+    data: {
+      workDate: string;
+      endDate: string;
+      items: Array<{ positionId: string; rateUnit: import('@/types').WorkforceRateUnit; quantity: number; hours?: number | null }>;
+      comment?: string;
+      revisionComment?: string;
+    }
+  ) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${id}/resubmit`,
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  requestWorkforceVendorReplacement(id: string, reason?: string) {
+    return this.request<import('@/types').WorkforceRequest>(
+      `/workforce/requests/${id}/request-replacement`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    );
+  }
+
+  updateWorkforceVendor(id: string, data: Record<string, unknown>) {
+    return this.request(`/workforce/vendors/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  }
+
+  deleteWorkforceVendor(id: string) {
+    return this.request(`/workforce/vendors/${id}`, { method: 'DELETE' });
+  }
+
+  approveWorkforceVendor(id: string, comment?: string) {
+    return this.request(`/workforce/vendors/${id}/approve`, { method: 'POST', body: JSON.stringify({ comment }) });
+  }
+
+  rejectWorkforceVendor(id: string, reason?: string) {
+    return this.request(`/workforce/vendors/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+  }
+
+  createWorkforceRate(data: Record<string, unknown>) {
+    return this.request('/workforce/rates', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  updateWorkforceRate(id: string, data: Record<string, unknown>) {
+    return this.request(`/workforce/rates/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+  }
+
+  deleteWorkforceRate(id: string) {
+    return this.request(`/workforce/rates/${id}`, { method: 'DELETE' });
   }
 
   upsertWorkforceRoute(departmentId: string, data: { name?: string; steps: unknown[] }) {

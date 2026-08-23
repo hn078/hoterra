@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 type UserRow = User & {
   _count?: { documents: number; signatures?: number };
 };
+type CustomRoleOption = { id: string; name: string; baseRole?: Role; isSystem: boolean };
 
 const ROLE_BADGE_STYLE: Record<string, string> = {
   SYSTEM_ADMINISTRATOR: 'bg-purple-100 text-purple-800',
@@ -37,6 +38,7 @@ const LIMIT = 20;
 export function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [customRoles, setCustomRoles] = useState<CustomRoleOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -45,7 +47,7 @@ export function UsersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
-  const [editForm, setEditForm] = useState({ role: 'EMPLOYEE' as Role, departmentId: '', isActive: true });
+  const [editForm, setEditForm] = useState({ role: 'EMPLOYEE' as Role, customRoleId: '', departmentId: '', isActive: true });
   const [savingEdit, setSavingEdit] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -55,6 +57,7 @@ export function UsersPage() {
     firstName: '',
     lastName: '',
     role: 'EMPLOYEE' as Role,
+    customRoleId: '',
     departmentId: '',
   });
 
@@ -70,6 +73,7 @@ export function UsersPage() {
   useEffect(() => {
     loadUsers();
     api.getDepartments().then(setDepartments).catch(console.error);
+    api.getRoles().then((data) => setCustomRoles(data.roles.filter((role) => !role.isSystem))).catch(console.error);
   }, []);
 
   const filtered = useMemo(() => {
@@ -80,7 +84,7 @@ export function UsersPage() {
         u.firstName.toLowerCase().includes(q) ||
         u.lastName.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
-        ROLE_LABELS[u.role].toLowerCase().includes(q) ||
+        (u.customRole?.name ?? ROLE_LABELS[u.role]).toLowerCase().includes(q) ||
         u.department?.name.toLowerCase().includes(q);
       const matchesRole = !filterRole || u.role === filterRole;
       const isActive = u.isActive !== false;
@@ -113,7 +117,7 @@ export function UsersPage() {
         departmentId: newUser.departmentId || undefined,
       });
       setShowAddModal(false);
-      setNewUser({ email: '', password: '', firstName: '', lastName: '', role: 'EMPLOYEE', departmentId: '' });
+      setNewUser({ email: '', password: '', firstName: '', lastName: '', role: 'EMPLOYEE', customRoleId: '', departmentId: '' });
       loadUsers();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to create user');
@@ -126,6 +130,7 @@ export function UsersPage() {
     setEditingUser(user);
     setEditForm({
       role: user.role,
+      customRoleId: user.customRole?.id ?? '',
       departmentId: user.department?.id ?? '',
       isActive: user.isActive !== false,
     });
@@ -140,6 +145,7 @@ export function UsersPage() {
     try {
       await api.updateUser(editingUser.id, {
         role: editForm.role,
+        customRoleId: editForm.customRoleId || null,
         departmentId: editForm.departmentId || null,
         isActive: editForm.isActive,
       });
@@ -247,7 +253,7 @@ export function UsersPage() {
                   <td className="px-4 py-3 text-gray-600">{user.email}</td>
                   <td className="px-4 py-3">
                     <span className={cn('badge-pill', ROLE_BADGE_STYLE[user.role] ?? ROLE_BADGE_STYLE.EMPLOYEE)}>
-                      {ROLE_LABELS[user.role]}
+                      {user.customRole?.name ?? ROLE_LABELS[user.role]}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -338,13 +344,17 @@ export function UsersPage() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Role</label>
                 <select
-                  value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as Role })}
+                  value={newUser.customRoleId || newUser.role}
+                  onChange={(e) => {
+                    const custom = customRoles.find((role) => role.id === e.target.value);
+                    setNewUser({ ...newUser, role: custom?.baseRole ?? e.target.value as Role, customRoleId: custom?.id ?? '' });
+                  }}
                   className="input"
                 >
                   {Object.entries(ROLE_LABELS).map(([k, v]) => (
                     <option key={k} value={k}>{v}</option>
                   ))}
+                  {customRoles.length > 0 && <optgroup label="Custom Roles">{customRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</optgroup>}
                 </select>
               </div>
               <div>
@@ -381,8 +391,9 @@ export function UsersPage() {
             <form onSubmit={handleUpdateUser} className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Role</label>
-                <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value as Role })} className="input">
+                <select value={editForm.customRoleId || editForm.role} onChange={(e) => { const custom = customRoles.find((role) => role.id === e.target.value); setEditForm({ ...editForm, role: custom?.baseRole ?? e.target.value as Role, customRoleId: custom?.id ?? '' }); }} className="input">
                   {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {customRoles.length > 0 && <optgroup label="Custom Roles">{customRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</optgroup>}
                 </select>
               </div>
               <div>

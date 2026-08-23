@@ -15,7 +15,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
   const user = await prisma.user.findUnique({
     where: { email: email.toLowerCase() },
-    include: { department: true },
+    include: { department: true, customRole: true },
   });
 
   if (!user || !user.isActive) {
@@ -54,6 +54,7 @@ router.post('/login', async (req: Request, res: Response) => {
       firstName: user.firstName,
       lastName: user.lastName,
       role: user.role,
+      customRole: user.customRole,
       signatureImage: user.signatureImage,
       department: user.department,
     },
@@ -63,7 +64,7 @@ router.post('/login', async (req: Request, res: Response) => {
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
-    include: { department: true },
+    include: { department: true, customRole: true },
   });
 
   if (!user) {
@@ -76,6 +77,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    customRole: user.customRole,
     signatureImage: user.signatureImage,
     department: user.department,
   });

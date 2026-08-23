@@ -24,6 +24,7 @@ router.get('/', authMiddleware, async (_req: Request, res: Response) => {
       firstName: true,
       lastName: true,
       role: true,
+      customRole: { select: { id: true, name: true, baseRole: true } },
       signatureImage: true,
       department: true,
       createdAt: true,
@@ -39,7 +40,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { email, password, firstName, lastName, role, departmentId } = req.body;
+  const { email, password, firstName, lastName, role, customRoleId, departmentId } = req.body;
   if (!email || !password || !firstName || !lastName || !role) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
@@ -47,6 +48,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return res.status(400).json({ error: 'Email already exists' });
 
+  const customRole = customRoleId ? await prisma.customRole.findUnique({ where: { id: customRoleId } }) : null;
+  if (customRoleId && !customRole) return res.status(400).json({ error: 'Custom role not found' });
   const passwordHash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: {
@@ -54,10 +57,11 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       passwordHash,
       firstName,
       lastName,
-      role,
+      role: customRole?.baseRole ?? role,
+      customRoleId: customRole?.id ?? null,
       departmentId: departmentId || null,
     },
-    include: { department: true },
+    include: { department: true, customRole: true },
   });
 
   res.status(201).json({
@@ -66,6 +70,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    customRole: user.customRole,
     department: user.department,
     createdAt: user.createdAt,
   });
@@ -77,12 +82,21 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   }
 
   const id = routeParam(req.params.id);
-  const { firstName, lastName, role, departmentId, isActive, password } = req.body;
+  const { firstName, lastName, role, customRoleId, departmentId, isActive, password } = req.body;
 
   const data: Record<string, unknown> = {};
   if (firstName) data.firstName = firstName;
   if (lastName) data.lastName = lastName;
-  if (role) data.role = role;
+  if (customRoleId !== undefined) {
+    const customRole = customRoleId ? await prisma.customRole.findUnique({ where: { id: customRoleId } }) : null;
+    if (customRoleId && !customRole) return res.status(400).json({ error: 'Custom role not found' });
+    data.customRoleId = customRole?.id ?? null;
+    if (customRole) data.role = customRole.baseRole;
+    else if (role) data.role = role;
+  } else if (role) {
+    data.role = role;
+    data.customRoleId = null;
+  }
   if (departmentId !== undefined) data.departmentId = departmentId || null;
   if (isActive !== undefined) data.isActive = isActive;
   if (password) data.passwordHash = await bcrypt.hash(password, 10);
@@ -90,7 +104,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const user = await prisma.user.update({
     where: { id },
     data,
-    include: { department: true },
+    include: { department: true, customRole: true },
   });
 
   res.json({
@@ -99,6 +113,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
+    customRole: user.customRole,
     department: user.department,
     createdAt: user.createdAt,
   });

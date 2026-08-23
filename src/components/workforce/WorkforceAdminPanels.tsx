@@ -15,15 +15,18 @@ export function RoutesEditorPanel({
   departments: Department[];
   onSaved: () => void;
 }) {
+  const humanResourcesDepartment = departments.find((department) => department.code === 'HR' || department.name === 'Human Resources');
+  const defaultSteps = (): WorkforceApprovalStep[] => [
+    { role: 'HOD', label: 'Requesting department — Head of Department' },
+    { role: 'HOD', label: 'Human Resources — Head of Department', ...(humanResourcesDepartment ? { approverDepartmentId: humanResourcesDepartment.id } : {}) },
+    { role: 'FINANCE_DIRECTOR', label: 'Finance Director' },
+    { role: 'GENERAL_MANAGER', label: 'General Manager' },
+  ];
   const [deptId, setDeptId] = useState(departments[0]?.id || '');
   const existing = meta.routes.find((r) => r.departmentId === deptId);
   const [name, setName] = useState(existing?.name || '');
   const [steps, setSteps] = useState<WorkforceApprovalStep[]>(
-    existing?.steps || [
-      { role: 'HOD', label: 'Head of Department' },
-      { role: 'FINANCE_DIRECTOR', label: 'Financial Controller' },
-      { role: 'GENERAL_MANAGER', label: 'GM / COO' },
-    ]
+    existing?.steps || defaultSteps()
   );
   const [budgetAmount, setBudgetAmount] = useState('5000');
   const [saving, setSaving] = useState(false);
@@ -32,11 +35,7 @@ export function RoutesEditorPanel({
     const route = meta.routes.find((r) => r.departmentId === deptId);
     setName(route?.name || `${departments.find((d) => d.id === deptId)?.name || ''} Casual Route`);
     setSteps(
-      route?.steps || [
-        { role: 'HOD', label: 'Head of Department' },
-        { role: 'FINANCE_DIRECTOR', label: 'Financial Controller' },
-        { role: 'GENERAL_MANAGER', label: 'GM / COO' },
-      ]
+      route?.steps || defaultSteps()
     );
     const now = new Date();
     const budget = meta.budgets.find(
@@ -52,6 +51,27 @@ export function RoutesEditorPanel({
     'SUPERVISOR',
     'SYSTEM_ADMINISTRATOR',
   ];
+  const approversForRole = (role: Role) => meta.approvers.filter((approver) => approver.role === role);
+  const updateStep = (index: number, next: WorkforceApprovalStep) => setSteps((current) => current.map((step, stepIndex) => stepIndex === index ? next : step));
+  const setStepRole = (index: number, role: Role) => {
+    const nextLabel = role === 'HOD' ? 'Head of Department' : ROLE_LABELS[role] || role;
+    updateStep(index, { role, label: nextLabel });
+  };
+  const setStepApprover = (index: number, value: string) => {
+    const step = steps[index];
+    if (value.startsWith('department:')) {
+      const departmentId = value.slice('department:'.length);
+      const department = departments.find((item) => item.id === departmentId);
+      updateStep(index, { ...step, approverUserId: undefined, approverDepartmentId: departmentId, label: `${department?.name || 'Department'} — Head of Department` });
+      return;
+    }
+    if (!value) {
+      updateStep(index, { ...step, approverUserId: undefined, approverDepartmentId: undefined, label: step.role === 'HOD' ? 'Requesting department — Head of Department' : ROLE_LABELS[step.role] || step.role });
+      return;
+    }
+    const approver = meta.approvers.find((item) => item.id === value);
+    if (approver) updateStep(index, { ...step, approverUserId: approver.id, approverDepartmentId: undefined, label: `${approver.firstName} ${approver.lastName} — ${ROLE_LABELS[approver.role] || approver.role}` });
+  };
 
   const saveRoute = async () => {
     if (!deptId || steps.length === 0) return;
@@ -75,9 +95,7 @@ export function RoutesEditorPanel({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">
-        Configure per-department approvers (e.g. Housekeeping → Executive Housekeeper → FC → GM/COO).
-      </p>
+      <p className="text-sm text-gray-500">Choose approvers from the active-user list. Every route includes Human Resources Head of Department before Finance Director.</p>
       <div className="card space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
@@ -106,28 +124,23 @@ export function RoutesEditorPanel({
           {steps.map((step, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2">
               <span className="w-6 text-xs text-gray-400">{i + 1}.</span>
-              <input
-                value={step.label}
-                onChange={(e) => {
-                  const next = [...steps];
-                  next[i] = { ...step, label: e.target.value };
-                  setSteps(next);
-                }}
-                className="min-w-[160px] flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                placeholder="Label"
-              />
               <select
                 value={step.role}
-                onChange={(e) => {
-                  const next = [...steps];
-                  next[i] = { ...step, role: e.target.value as Role };
-                  setSteps(next);
-                }}
+                onChange={(e) => setStepRole(i, e.target.value as Role)}
                 className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
               >
                 {roles.map((r) => (
                   <option key={r} value={r}>{ROLE_LABELS[r as Role] || r}</option>
                 ))}
+              </select>
+              <select
+                value={step.approverUserId || (step.approverDepartmentId ? `department:${step.approverDepartmentId}` : '')}
+                onChange={(e) => setStepApprover(i, e.target.value)}
+                className="min-w-[240px] flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              >
+                <option value="">{step.role === 'HOD' ? 'Requesting department Head of Department' : `Any active ${ROLE_LABELS[step.role] || step.role}`}</option>
+                {step.role === 'HOD' && departments.map((department) => <option key={department.id} value={`department:${department.id}`}>{department.name} — Head of Department</option>)}
+                {approversForRole(step.role).map((approver) => <option key={approver.id} value={approver.id}>{approver.firstName} {approver.lastName} · {approver.department?.name || ROLE_LABELS[approver.role]}</option>)}
               </select>
               <button
                 type="button"
@@ -142,7 +155,7 @@ export function RoutesEditorPanel({
             type="button"
             className="btn-secondary"
             onClick={() =>
-              setSteps([...steps, { role: 'GENERAL_MANAGER', label: 'GM / COO' }])
+              setSteps([...steps, { role: 'GENERAL_MANAGER', label: 'General Manager' }])
             }
           >
             Add step

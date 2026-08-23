@@ -77,7 +77,7 @@ function prepareDatabase() {
 
   process.env.DATABASE_URL = toFileUrl(dbFile);
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'hoterra-hdms-production-secret';
-  process.env.PORT = process.env.PORT || '3001';
+  process.env.PORT = process.env.PORT || '3211';
   process.env.HOTERRA_UPLOADS_DIR = uploadsDir;
   log(`Database: ${process.env.DATABASE_URL}`);
   log(`Uploads: ${uploadsDir}`);
@@ -110,7 +110,7 @@ async function waitForApi(port: number, attempts = 60): Promise<number> {
 
 async function startBackend(): Promise<number> {
   if (isDev) {
-    return waitForApi(3001);
+    return waitForApi(3211);
   }
 
   prepareDatabase();
@@ -122,7 +122,7 @@ async function startBackend(): Promise<number> {
   // DATABASE_URL and Prisma paths must be set before Prisma client initializes
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const serverModule = require(serverPath);
-  const { port } = await serverModule.startServer(Number(process.env.PORT) || 3001);
+  const { port } = await serverModule.startServer(Number(process.env.PORT) || 3211);
   log(`Server listening on ${port}`);
   return port;
 }

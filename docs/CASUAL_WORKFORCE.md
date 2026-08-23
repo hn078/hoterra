@@ -85,7 +85,7 @@ Casual Workforce — отдельный операционный модуль (�
 
 | Департамент | Пример маршрута |
 |-------------|-----------------|
-| Housekeeping | Executive Housekeeper → HR → Financial Controller → GM |
+| Housekeeping | Executive Housekeeper → HR → Finance Director → GM |
 | F&B | Restaurant Manager → F&B Director → FC → GM |
 | Engineering | Chief Engineer → FC → GM |
 

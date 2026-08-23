@@ -55,9 +55,9 @@ async function main() {
 
   const users = [
     {
-      email: 'fuad.ahmadov@hoterra.az',
-      firstName: 'Fuad',
-      lastName: 'Ahmadov',
+      email: 'rasul.mursagulov@hoterra.az',
+      firstName: 'Rəsul',
+      lastName: 'Mürsəqulov',
       role: Role.GENERAL_MANAGER,
       departmentId: deptByCode.GM.id,
     },
@@ -154,7 +154,7 @@ async function main() {
       code: 'FO-SOP-001',
       category: DocumentCategory.SOP,
       departmentId: deptByCode.FO.id,
-      authorId: userByEmail['fuad.ahmadov@hoterra.az'].id,
+      authorId: userByEmail['rasul.mursagulov@hoterra.az'].id,
       ownerId: userByEmail['nigar.rustamova@hoterra.az'].id,
       status: DocumentStatus.PUBLISHED,
       version: '2.1',
@@ -202,8 +202,8 @@ async function main() {
       code: 'GM-POL-003',
       category: DocumentCategory.POLICIES,
       departmentId: deptByCode.GM.id,
-      authorId: userByEmail['fuad.ahmadov@hoterra.az'].id,
-      ownerId: userByEmail['fuad.ahmadov@hoterra.az'].id,
+      authorId: userByEmail['rasul.mursagulov@hoterra.az'].id,
+      ownerId: userByEmail['rasul.mursagulov@hoterra.az'].id,
       status: DocumentStatus.DRAFT,
       version: '1.0',
       tags: JSON.stringify(['Privacy', 'GDPR']),
@@ -241,13 +241,13 @@ async function main() {
       code: 'SC-POL-012',
       category: DocumentCategory.POLICIES,
       departmentId: deptByCode.SC.id,
-      authorId: userByEmail['fuad.ahmadov@hoterra.az'].id,
-      ownerId: userByEmail['fuad.ahmadov@hoterra.az'].id,
+      authorId: userByEmail['rasul.mursagulov@hoterra.az'].id,
+      ownerId: userByEmail['rasul.mursagulov@hoterra.az'].id,
       status: DocumentStatus.ARCHIVED,
       version: '1.0',
       archiveReason: 'Superseded by 2024 edition',
       archivedAt: new Date('2024-09-20'),
-      archivedBy: 'Fuad Ahmadov',
+      archivedBy: 'Rəsul Mürsəqulov',
       fileSize: 5033164,
       priority: DocumentPriority.MEDIUM,
     },
@@ -285,7 +285,7 @@ async function main() {
     const sigUsers = [
       { user: userByEmail['nigar.rustamova@hoterra.az'], position: 'Head of Department' },
       { user: userByEmail['elnur.mahmudov@hoterra.az'], position: 'Finance Director' },
-      { user: userByEmail['fuad.ahmadov@hoterra.az'], position: 'General Manager' },
+      { user: userByEmail['rasul.mursagulov@hoterra.az'], position: 'General Manager' },
     ];
 
     for (const s of sigUsers) {
@@ -325,7 +325,7 @@ async function main() {
           data: {
             documentId: publishedDoc.id,
             action,
-            userName: 'Fuad Ahmadov',
+            userName: 'Rəsul Mürsəqulov',
           },
         });
       }
@@ -365,7 +365,7 @@ async function main() {
     }
   }
 
-  const fuad = userByEmail['fuad.ahmadov@hoterra.az'];
+  const rasul = userByEmail['rasul.mursagulov@hoterra.az'];
   const notificationSamples = [
     { title: 'Document approved', message: 'Q2 Financial Report has been approved by Finance Director', type: 'document', link: '/documents' },
     { title: 'Approval required', message: 'Guest Check-in Procedure requires your review', type: 'workflow', link: '/approvals' },
@@ -379,12 +379,12 @@ async function main() {
 
   for (const [i, n] of notificationSamples.entries()) {
     const exists = await prisma.notification.findFirst({
-      where: { userId: fuad.id, title: n.title },
+      where: { userId: rasul.id, title: n.title },
     });
     if (!exists) {
       await prisma.notification.create({
         data: {
-          userId: fuad.id,
+          userId: rasul.id,
           title: n.title,
           message: n.message,
           type: n.type,
@@ -397,7 +397,7 @@ async function main() {
 
   for (const log of [
     {
-      userName: 'Fuad Ahmadov',
+      userName: 'Rəsul Mürsəqulov',
       action: AuditAction.PUBLISH,
       entityType: 'Document',
       details: 'Published "Credit Card Handling Procedure"',
@@ -436,7 +436,7 @@ async function main() {
     });
   }
 
-  for (const u of [fuad, nigar, employee]) {
+  for (const u of [rasul, nigar, employee]) {
     await prisma.conversationParticipant.upsert({
       where: { conversationId_userId: { conversationId: hotelChat.id, userId: u.id } },
       create: { conversationId: hotelChat.id, userId: u.id },
@@ -457,7 +457,7 @@ async function main() {
     await prisma.message.create({
       data: {
         conversationId: hotelChat.id,
-        senderId: fuad.id,
+        senderId: rasul.id,
         content: 'Welcome to the hotel-wide chat. Use this channel for announcements and cross-department coordination.',
       },
     });
@@ -542,7 +542,7 @@ async function main() {
       name: 'Housekeeping Casual Route',
       steps: [
         { role: Role.HOD, label: 'Executive Housekeeper' },
-        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Finance Director' },
         { role: Role.GENERAL_MANAGER, label: 'General Manager' },
       ],
     },
@@ -551,7 +551,7 @@ async function main() {
       name: 'F&B Casual Route',
       steps: [
         { role: Role.HOD, label: 'Restaurant Manager / F&B Director' },
-        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Finance Director' },
         { role: Role.GENERAL_MANAGER, label: 'General Manager' },
       ],
     },
@@ -560,7 +560,7 @@ async function main() {
       name: 'Engineering Casual Route',
       steps: [
         { role: Role.HOD, label: 'Chief Engineer' },
-        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Finance Director' },
         { role: Role.GENERAL_MANAGER, label: 'General Manager' },
       ],
     },
@@ -569,7 +569,7 @@ async function main() {
       name: 'Front Office Casual Route',
       steps: [
         { role: Role.HOD, label: 'Front Office Manager' },
-        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Finance Director' },
         { role: Role.GENERAL_MANAGER, label: 'General Manager' },
       ],
     },
@@ -647,7 +647,7 @@ async function main() {
       const workDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
       const steps = [
         { role: Role.HOD, label: 'Front Office Manager' },
-        { role: Role.FINANCE_DIRECTOR, label: 'Financial Controller' },
+        { role: Role.FINANCE_DIRECTOR, label: 'Finance Director' },
         { role: Role.GENERAL_MANAGER, label: 'General Manager' },
       ];
       const req = await prisma.workforceRequest.create({
@@ -657,17 +657,20 @@ async function main() {
           departmentId: foDeptForWf.id,
           positionId: receptionist.id,
           workDate,
+          endDate: workDate,
+          rateUnit: 'HOURLY',
           shift: 'MORNING',
           startTime: '08:00',
           endTime: '16:00',
           quantity: 3,
           comment: 'Peak check-in coverage — demo request',
           vendorMode: 'DIRECT',
-          vendorId: vendorA.id,
+          vendorId: null,
           status: 'PENDING',
           approvalSteps: JSON.stringify(steps),
           estimatedCost: 3 * 8 * 15,
           createdById: nigar.id,
+          items: { create: { positionId: receptionist.id, rateUnit: 'HOURLY', quantity: 3, hours: 8, estimatedCost: 3 * 8 * 15 } },
         },
       });
       await prisma.workforceRequestEvent.create({
@@ -685,7 +688,7 @@ async function main() {
   console.log('Seed completed successfully!');
   console.log('');
   console.log('Demo accounts (password: password123, PIN: 1234):');
-  console.log('  GM:       fuad.ahmadov@hoterra.az');
+  console.log('  GM:       rasul.mursagulov@hoterra.az');
   console.log('  HOD:      nigar.rustamova@hoterra.az');
   console.log('  Finance:  elnur.mahmudov@hoterra.az');
   console.log('  Employee: employee@hoterra.az');
