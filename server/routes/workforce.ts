@@ -75,11 +75,20 @@ function hodDepartmentId(req: Request) {
 
 function canViewWorkforceRequest(
   req: Request,
-  request: { departmentId: string; status: WorkforceRequestStatus; currentStepIndex: number; approvalSteps: string }
+  request: {
+    departmentId: string;
+    status: WorkforceRequestStatus;
+    currentStepIndex: number;
+    approvalSteps: string;
+    events?: Array<{ action: string; userId: string | null }>;
+  }
 ) {
   return req.user!.role !== Role.HOD ||
     req.user!.departmentId === request.departmentId ||
-    canApproveCurrentStep(req.user!, request);
+    canApproveCurrentStep(req.user!, request) ||
+    request.events?.some((event) =>
+      event.userId === req.user!.id && ['APPROVED', 'REJECTED'].includes(event.action)
+    ) === true;
 }
 
 function canApproveVendorCorrectionReview(role: Role, status: string) {
@@ -713,6 +722,13 @@ router.get(
     if (!scopedDepartmentId && departmentId) where.departmentId = departmentId;
     if (mine) where.createdById = req.user!.id;
 
+    const participatedRequestIds = scopedDepartmentId
+      ? new Set((await prisma.workforceRequestEvent.findMany({
+          where: { userId: req.user!.id, action: { in: ['APPROVED', 'REJECTED'] } },
+          select: { requestId: true },
+        })).map((event) => event.requestId))
+      : new Set<string>();
+
     let requests = await prisma.workforceRequest.findMany({
       where,
       include: {
@@ -747,6 +763,7 @@ router.get(
     if (scopedDepartmentId) {
       requests = requests.filter((request) =>
         request.departmentId === scopedDepartmentId ||
+        participatedRequestIds.has(request.id) ||
         canApproveCurrentStep(req.user!, {
           status: request.status,
           departmentId: request.departmentId,
@@ -1015,6 +1032,10 @@ router.post(
     if (!request) return res.status(404).json({ error: 'Request not found' });
 
     if (!canApproveCurrentStep(req.user!, request)) {
+      const latestEvent = request.events[0];
+      if (latestEvent?.action === 'APPROVED' && latestEvent.userId === req.user!.id) {
+        return res.json(formatWorkforceRequestForViewer(request, req.user!));
+      }
       return res.status(403).json({ error: 'You cannot approve this step' });
     }
 

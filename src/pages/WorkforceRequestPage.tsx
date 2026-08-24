@@ -41,46 +41,51 @@ export function WorkforceRequestPage() {
   const [financeAction, setFinanceAction] = useState<'cancel' | 'return' | null>(null);
   const [financeActionComment, setFinanceActionComment] = useState('');
 
-  const load = () => {
+  const load = async () => {
     if (!id) return;
     setLoading(true);
-    api
-      .getWorkforceRequest(id)
-      .then((r) => {
-        setRequest(r);
-        if (r.canCorrectVendors || r.status === 'RETURNED_FOR_REVISION') api.getWorkforceMeta().then(setMeta).catch(console.error);
-        else setMeta(null);
-        setActuals({
-          actualQuantity: r.actualQuantity ?? r.quantity,
-          actualHours: r.actualHours ?? 0,
-          actualCost: r.actualCost ?? r.estimatedCost ?? 0,
-        });
-        setRevision({
-          workDate: r.workDate.slice(0, 10),
-          endDate: r.endDate.slice(0, 10),
-          comment: r.comment || '',
-          revisionComment: '',
-          items: r.items.map((item) => ({
-            positionId: item.positionId,
-            rateUnit: item.rateUnit,
-            quantity: item.quantity,
-            hours: item.hours ?? (item.rateUnit === 'HOURLY' ? 1 : null),
-          })),
-        });
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    try {
+      const r = await api.getWorkforceRequest(id);
+      setRequest(r);
+      if (r.canCorrectVendors || r.status === 'RETURNED_FOR_REVISION') {
+        api.getWorkforceMeta().then(setMeta).catch(console.error);
+      } else {
+        setMeta(null);
+      }
+      setActuals({
+        actualQuantity: r.actualQuantity ?? r.quantity,
+        actualHours: r.actualHours ?? 0,
+        actualCost: r.actualCost ?? r.estimatedCost ?? 0,
+      });
+      setRevision({
+        workDate: r.workDate.slice(0, 10),
+        endDate: r.endDate.slice(0, 10),
+        comment: r.comment || '',
+        revisionComment: '',
+        items: r.items.map((item) => ({
+          positionId: item.positionId,
+          rateUnit: item.rateUnit,
+          quantity: item.quantity,
+          hours: item.hours ?? (item.rateUnit === 'HOURLY' ? 1 : null),
+        })),
+      });
+    } catch (error) {
+      console.error(error);
+      setRequest(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, [id]);
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     try {
       await fn();
-      load();
+      await load();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Action failed');
     } finally {

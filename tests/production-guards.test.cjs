@@ -86,3 +86,14 @@ test('frontend build assets stay root-relative on nested SPA routes', () => {
   assert.match(viteConfig, /base:\s*['"]\/["']/);
   assert.doesNotMatch(viteConfig, /base:\s*['"]\.\/["']/);
 });
+
+test('workforce HOD approvals remain visible and duplicate submissions are idempotent', () => {
+  const workforceRoute = read('server/routes/workforce.ts');
+  assert.match(workforceRoute, /participatedRequestIds\.has\(request\.id\)/);
+  assert.match(workforceRoute, /\['APPROVED', 'REJECTED'\]\.includes\(event\.action\)/);
+  assert.match(workforceRoute, /latestEvent\?\.action === 'APPROVED'/);
+
+  const requestPage = read('src/pages/WorkforceRequestPage.tsx');
+  assert.match(requestPage, /const load = async \(\) =>/);
+  assert.match(requestPage, /await load\(\)/);
+});
