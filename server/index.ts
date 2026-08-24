@@ -20,6 +20,7 @@ import conversationRoutes from './routes/conversations';
 import workforceRoutes from './routes/workforce';
 import vendorPortalRoutes from './routes/vendorPortal';
 import fileRoutes from './routes/files';
+import publicTenantRoutes from './routes/publicTenant';
 import { startRecurringScheduler } from './lib/workforceRecurring';
 import { tenantMiddleware } from './middleware/tenant';
 import { isAllowedOrigin, isProduction, runtimeConfig, validateRuntimeConfig } from './config';
@@ -84,6 +85,8 @@ export function createApp() {
       res.status(503).json({ status: 'unavailable' });
     }
   });
+
+  app.use('/api/public', publicTenantRoutes);
 
   app.use('/api', tenantMiddleware);
 

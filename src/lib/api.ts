@@ -23,6 +23,10 @@ class ApiClient {
     return 'http://127.0.0.1:3211/api';
   }
 
+  private absoluteApiUrl(path: string): string {
+    return `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
   setToken(token: string | null) {
     this.token = token;
     if (token) {
@@ -385,6 +389,27 @@ class ApiClient {
     }>('/roles');
   }
 
+  uploadLoginBrandingAsset(asset: 'logo' | 'background', fileName: string, data: string) {
+    return this.request<{ loginLogoPath: string | null; loginBackgroundPath: string | null }>(
+      `/settings/branding/${asset}`,
+      { method: 'POST', body: JSON.stringify({ fileName, data }) }
+    );
+  }
+
+  removeLoginBrandingAsset(asset: 'logo' | 'background') {
+    return this.request<{ loginLogoPath: string | null; loginBackgroundPath: string | null }>(
+      `/settings/branding/${asset}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  getLoginBrandingAssetUrl(asset: 'logo' | 'background', version?: string | null) {
+    const suffix = version ? `?v=${encodeURIComponent(version)}` : '';
+    return this.absoluteApiUrl(
+      `/public/tenants/${encodeURIComponent(this.tenantSlug)}/branding/${asset}${suffix}`
+    );
+  }
+
   async getProtectedObjectUrl(path: string): Promise<string> {
     const token = this.getToken();
     const res = await fetch(`${this.baseUrl}${path}`, {
@@ -407,6 +432,20 @@ class ApiClient {
 
   getCurrentTenant() {
     return this.request<{ id: string; slug: string; name: string; url: string }>('/tenant/current');
+  }
+
+  async getPublicTenantBranding() {
+    const branding = await this.request<{
+      tenantName: string;
+      companyName: string;
+      logoUrl: string | null;
+      backgroundUrl: string | null;
+    }>(`/public/tenants/${encodeURIComponent(this.tenantSlug)}/branding`);
+    return {
+      ...branding,
+      logoUrl: branding.logoUrl ? this.absoluteApiUrl(branding.logoUrl) : null,
+      backgroundUrl: branding.backgroundUrl ? this.absoluteApiUrl(branding.backgroundUrl) : null,
+    };
   }
 
   checkTenantSlug(slug: string) {

@@ -19,6 +19,9 @@ import {
   Info,
   X,
   Globe2,
+  Image as ImageIcon,
+  Upload,
+  Trash2,
 } from 'lucide-react';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { SwitchRow } from '@/components/ui/Switch';
@@ -28,6 +31,7 @@ import { formatDateTime } from '@/lib/utils';
 
 const CATEGORIES = [
   { id: 'general', icon: Building2, label: 'General', labelRu: 'Общие' },
+  { id: 'branding', icon: ImageIcon, label: 'Login Branding', labelRu: 'Брендинг входа' },
   { id: 'security', icon: Shield, label: 'Security', labelRu: 'Безопасность' },
   { id: 'signatures', icon: PenLine, label: 'Signatures', labelRu: 'Подписи' },
   { id: 'numbering', icon: Hash, label: 'Document Numbering', labelRu: 'Нумерация документов' },
@@ -41,6 +45,15 @@ const CATEGORIES = [
 ];
 
 type Ext = Record<string, Record<string, unknown>>;
+
+function fileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Image could not be read'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function getExt(settings: SystemSettings): Ext {
   return (settings.extended ?? {}) as Ext;
@@ -57,6 +70,7 @@ export function SettingsPage() {
   const [logs, setLogs] = useState<AuditLog[] | null>(null);
   const [showLogs, setShowLogs] = useState(false);
   const [slugStatus, setSlugStatus] = useState<'checking' | 'available' | 'taken' | 'invalid' | null>(null);
+  const [brandingUploading, setBrandingUploading] = useState<'logo' | 'background' | null>(null);
 
   useEffect(() => {
     api.getSettings().then(setSettings).catch(console.error);
@@ -127,6 +141,42 @@ export function SettingsPage() {
     }
   };
 
+  const handleBrandingUpload = async (asset: 'logo' | 'background', file: File) => {
+    if (!settings) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      alert('Please select a PNG, JPEG, or WebP image.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Branding images must be 5 MB or smaller.');
+      return;
+    }
+    setBrandingUploading(asset);
+    try {
+      const result = await api.uploadLoginBrandingAsset(asset, file.name, await fileAsBase64(file));
+      setSettings({ ...settings, ...result });
+      setSaved(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Branding image upload failed');
+    } finally {
+      setBrandingUploading(null);
+    }
+  };
+
+  const handleBrandingRemove = async (asset: 'logo' | 'background') => {
+    if (!settings) return;
+    setBrandingUploading(asset);
+    try {
+      const result = await api.removeLoginBrandingAsset(asset);
+      setSettings({ ...settings, ...result });
+      setSaved(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Branding image could not be removed');
+    } finally {
+      setBrandingUploading(null);
+    }
+  };
+
   const handleClearCache = async () => {
     setMaintenanceLoading('cache');
     try {
@@ -184,6 +234,12 @@ export function SettingsPage() {
   const backup = ext.backup ?? {};
   const system = ext.system ?? {};
   const license = ext.license ?? {};
+  const logoPreview = settings.loginLogoPath
+    ? api.getLoginBrandingAssetUrl('logo', settings.loginLogoPath)
+    : null;
+  const backgroundPreview = settings.loginBackgroundPath
+    ? api.getLoginBrandingAssetUrl('background', settings.loginBackgroundPath)
+    : null;
 
   const categoryTitle = CATEGORIES.find((c) => c.id === activeCategory)?.label ?? 'Settings';
 
@@ -368,6 +424,105 @@ export function SettingsPage() {
                 <SwitchRow label="Two-factor authentication" checked={settings.enable2FA} onChange={(v) => update('enable2FA', v)} />
                 <SwitchRow label="Allow comments" checked={settings.allowComments} onChange={(v) => update('allowComments', v)} />
                 <SwitchRow label="Show tooltips" checked={settings.showTooltips} onChange={(v) => update('showTooltips', v)} />
+              </SettingsSection>
+            </>
+          )}
+
+          {activeCategory === 'branding' && (
+            <>
+              <SettingsSection title="Hotel Login Branding">
+                <p className="text-sm leading-6 text-gray-500">
+                  These images are applied only to <strong>{settings.tenantSlug}.hoterra.net</strong> and are visible before users sign in.
+                  Uploading or resetting an image is saved immediately.
+                </p>
+
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="mb-3">
+                      <h4 className="text-sm font-semibold text-hoterra-navy">Hotel logo</h4>
+                      <p className="mt-1 text-xs text-gray-500">Shown above the login form and at the top of the left panel. Transparent PNG is recommended.</p>
+                    </div>
+                    <div className="flex h-36 items-center justify-center overflow-hidden rounded-xl border border-dashed border-gray-200 bg-gray-50 p-5">
+                      {logoPreview ? (
+                        <img src={logoPreview} alt="Hotel login logo preview" className="max-h-full max-w-full object-contain" />
+                      ) : (
+                        <div className="text-center text-gray-400">
+                          <ImageIcon className="mx-auto mb-2 h-8 w-8" />
+                          <span className="text-xs">Default HOTERRA logo</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <label className={`btn-secondary cursor-pointer gap-2 ${brandingUploading ? 'pointer-events-none opacity-50' : ''}`}>
+                        <Upload className="h-4 w-4" />
+                        {brandingUploading === 'logo' ? 'Uploading...' : logoPreview ? 'Replace logo' : 'Upload logo'}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          disabled={brandingUploading !== null}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = '';
+                            if (file) void handleBrandingUpload('logo', file);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn-secondary gap-2 text-red-600 disabled:opacity-40"
+                        disabled={!logoPreview || brandingUploading !== null}
+                        onClick={() => void handleBrandingRemove('logo')}
+                      >
+                        <Trash2 className="h-4 w-4" /> Reset
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 bg-white p-4">
+                    <div className="mb-3">
+                      <h4 className="text-sm font-semibold text-hoterra-navy">Left panel background</h4>
+                      <p className="mt-1 text-xs text-gray-500">A landscape hotel photo works best. Recommended size: 1600 × 1200 px or larger.</p>
+                    </div>
+                    <div className="relative h-36 overflow-hidden rounded-xl border border-dashed border-gray-200 bg-hoterra-navy">
+                      {backgroundPreview ? (
+                        <img src={backgroundPreview} alt="Login background preview" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-center text-white/60">
+                          <div><ImageIcon className="mx-auto mb-2 h-8 w-8" /><span className="text-xs">Default HOTERRA background</span></div>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-br from-hoterra-navy/70 to-hoterra-steel/35" />
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <label className={`btn-secondary cursor-pointer gap-2 ${brandingUploading ? 'pointer-events-none opacity-50' : ''}`}>
+                        <Upload className="h-4 w-4" />
+                        {brandingUploading === 'background' ? 'Uploading...' : backgroundPreview ? 'Replace background' : 'Upload background'}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          disabled={brandingUploading !== null}
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = '';
+                            if (file) void handleBrandingUpload('background', file);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn-secondary gap-2 text-red-600 disabled:opacity-40"
+                        disabled={!backgroundPreview || brandingUploading !== null}
+                        onClick={() => void handleBrandingRemove('background')}
+                      >
+                        <Trash2 className="h-4 w-4" /> Reset
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-400">Accepted formats: PNG, JPEG, WebP · Maximum file size: 5 MB.</p>
               </SettingsSection>
             </>
           )}

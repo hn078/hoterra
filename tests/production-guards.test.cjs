@@ -37,6 +37,27 @@ test('uploads are private and tenant-prefixed', () => {
   assert.doesNotMatch(uploads, /\.svg/);
 });
 
+test('login branding exposes only selected tenant-scoped image assets', () => {
+  const migration = read('prisma/migrations/20260824050000_tenant_login_branding/migration.sql');
+  assert.match(migration, /loginLogoPath/);
+  assert.match(migration, /loginBackgroundPath/);
+
+  const uploads = read('server/lib/uploads.ts');
+  assert.match(uploads, /BRANDING_IMAGE_EXTENSIONS/);
+  assert.match(uploads, /detectedImageType/);
+  assert.match(uploads, /Image content does not match its file extension/);
+
+  const publicTenant = read('server/routes/publicTenant.ts');
+  assert.match(publicTenant, /expectedPrefix = `\/uploads\/\$\{tenant\.id\}\/branding\//);
+  assert.match(publicTenant, /isActive: true/);
+  assert.doesNotMatch(publicTenant, /authMiddleware/);
+
+  const settings = read('server/routes/settings.ts');
+  assert.match(settings, /requireRoles\(Role\.SYSTEM_ADMINISTRATOR, Role\.GENERAL_MANAGER\)/);
+  assert.match(settings, /loginLogoPath: _loginLogoPath/);
+  assert.match(settings, /loginBackgroundPath: _loginBackgroundPath/);
+});
+
 test('production runtime rejects weak configuration', () => {
   const config = read('server/config.ts');
   assert.match(config, /at least 32 characters/);

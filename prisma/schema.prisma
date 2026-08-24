@@ -477,6 +477,8 @@ model SystemSettings {
   notifyEmail         Boolean @default(true)
   notifyPush          Boolean @default(true)
   notifyInApp         Boolean @default(true)
+  loginLogoPath       String?
+  loginBackgroundPath String?
   extendedConfig      String  @default("{}")
 }
 

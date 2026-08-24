@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
@@ -13,6 +13,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
+import { api } from '@/lib/api';
 
 const FEATURES = [
   { icon: FileText, color: 'text-hoterra-gold', title: 'Centralized Documents', desc: 'All your documents in one secure place' },
@@ -30,8 +31,17 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showForgotMessage, setShowForgotMessage] = useState(false);
   const [ssoMessage, setSsoMessage] = useState<string | null>(null);
+  const [branding, setBranding] = useState<Awaited<ReturnType<typeof api.getPublicTenantBranding>> | null>(null);
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+    api.getPublicTenantBranding()
+      .then((result) => { if (active) setBranding(result); })
+      .catch(() => { /* TenantGuard handles invalid or unavailable workspaces. */ });
+    return () => { active = false; };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,21 +69,43 @@ export function LoginPage() {
 
       <div className="flex min-h-screen w-full flex-col lg:flex-row">
         {/* Left panel */}
-        <div className="relative hidden w-[45%] overflow-hidden rounded-r-[3rem] bg-login-resort bg-cover bg-center lg:flex lg:flex-col lg:justify-between lg:p-10">
-          <div>
+        <div className={`relative hidden w-[45%] overflow-hidden rounded-r-[3rem] bg-cover bg-center lg:flex lg:flex-col lg:justify-between lg:p-10 ${branding?.backgroundUrl ? 'bg-hoterra-navy' : 'bg-login-resort'}`}>
+          {branding?.backgroundUrl && (
+            <>
+              <img
+                src={branding.backgroundUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+                onError={() => setBranding((current) => current ? { ...current, backgroundUrl: null } : current)}
+              />
+              <div className="absolute inset-0 bg-gradient-to-br from-hoterra-navy/90 via-hoterra-navy/75 to-hoterra-steel/65" />
+            </>
+          )}
+          <div className="relative z-10">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 backdrop-blur">
-                <span className="text-2xl font-bold text-hoterra-gold">H</span>
-              </div>
-              <div>
-                <div className="text-xl font-bold tracking-wide text-white">
-                  HOT<span className="text-hoterra-gold">E</span>RR<span className="text-hoterra-gold">A</span>
-                </div>
-              </div>
+              {branding?.logoUrl ? (
+                <img
+                  src={branding.logoUrl}
+                  alt={`${branding.tenantName} logo`}
+                  className="max-h-14 max-w-[240px] object-contain object-left drop-shadow"
+                  onError={() => setBranding((current) => current ? { ...current, logoUrl: null } : current)}
+                />
+              ) : (
+                <>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 backdrop-blur">
+                    <span className="text-2xl font-bold text-hoterra-gold">H</span>
+                  </div>
+                  <div>
+                    <div className="text-xl font-bold tracking-wide text-white">
+                      HOT<span className="text-hoterra-gold">E</span>RR<span className="text-hoterra-gold">A</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="max-w-md">
+          <div className="relative z-10 max-w-md">
             <h2 className="mb-4 text-3xl font-bold leading-tight text-white">
               Intelligent Document Management for Hospitality Excellence
             </h2>
@@ -95,7 +127,7 @@ export function LoginPage() {
             </div>
           </div>
 
-          <div className="flex gap-6 text-xs text-white/50">
+          <div className="relative z-10 flex gap-6 text-xs text-white/50">
             <span>ISO 27001</span>
             <span>GDPR Compliant</span>
             <span>Secure Cloud Storage</span>
@@ -107,12 +139,21 @@ export function LoginPage() {
           <div className="w-full max-w-[420px]">
             <div className="card p-8 shadow-login">
               <div className="mb-6 flex justify-center">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-hoterra-navy text-lg font-bold text-hoterra-gold">
-                    H
+                {branding?.logoUrl ? (
+                  <img
+                    src={branding.logoUrl}
+                    alt={`${branding.tenantName} logo`}
+                    className="max-h-16 max-w-[240px] object-contain"
+                    onError={() => setBranding((current) => current ? { ...current, logoUrl: null } : current)}
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-hoterra-navy text-lg font-bold text-hoterra-gold">
+                      H
+                    </div>
+                    <span className="text-lg font-bold text-hoterra-navy">HOTERRA</span>
                   </div>
-                  <span className="text-lg font-bold text-hoterra-navy">HOTERRA</span>
-                </div>
+                )}
               </div>
 
               <h1 className="text-center text-xl font-bold text-hoterra-navy">Welcome Back!</h1>

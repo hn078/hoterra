@@ -303,6 +303,8 @@ export interface SystemSettings {
   notifyEmail?: boolean;
   notifyPush?: boolean;
   notifyInApp?: boolean;
+  loginLogoPath?: string | null;
+  loginBackgroundPath?: string | null;
   extended?: Record<string, unknown>;
 }
 

@@ -12,7 +12,7 @@ Bu sənəd HOTERRA-nın production PostgreSQL sxemini, tenant (otel) izolyasiyas
 | İzolyasiya | API filtri + PostgreSQL `FORCE ROW LEVEL SECURITY` |
 | Əlaqə bütövlüyü | `tenantId NOT NULL`, `Tenant` foreign key-ləri və tenant relation trigger-ləri |
 | Unikal sahələr | Tenant daxilində unikal: məsələn `(tenantId, email)` |
-| Fayllar | Tenant prefiksli private storage, yalnız autorizasiyalı API ilə oxunur |
+| Fayllar | Tenant prefiksli private storage; yalnız seçilmiş login branding şəkilləri public read-only endpointlə verilir |
 | Migration | Versionlanmış PostgreSQL migration-ları, production-da `migrate deploy` |
 
 Hazırkı ilkin tenant:
@@ -59,6 +59,8 @@ sequenceDiagram
 ```
 
 Login-dən sonra JWT-də `tenantId` saxlanılır. JWT tenant-ı ilə hostname/header tenant-ı uyğun gəlməzsə sorğu rədd edilir. İstifadəçinin aktivliyi və cari rolu hər qorunan sorğuda database-dən yenidən yoxlanılır.
+
+Login branding tenant-a məxsus `SystemSettings.loginLogoPath` və `SystemSettings.loginBackgroundPath` sahələrində saxlanılır. Login-dən əvvəl yalnız aktiv tenant-ın hazırda seçilmiş iki şəkli public branding endpointindən oxuna bilər; ümumi upload qovluğu açıq deyil.
 
 ## 4. Müdafiə qatları
 
@@ -191,7 +193,7 @@ erDiagram
     }
 ```
 
-Fayl yolları database-də tenant prefiksi ilə saxlanılır. `/uploads` public static route deyil; sənəd və imza faylları yalnız `/api/files/...` üzərindən JWT, tenant və sənəd səlahiyyəti yoxlandıqdan sonra verilir.
+Fayl yolları database-də tenant prefiksi ilə saxlanılır. `/uploads` public static route deyil; sənəd və imza faylları yalnız `/api/files/...` üzərindən JWT, tenant və sənəd səlahiyyəti yoxlandıqdan sonra verilir. Login loqosu və fonu `/uploads/{tenantId}/branding/` altında saxlanılır və public API yalnız `SystemSettings`-də aktiv seçilmiş faylı qaytarır.
 
 ## 7. Casual Workforce sxemi
 
@@ -276,6 +278,7 @@ Email birbaşa request thread-i içində göndərilmir. SMTP feature-i aktivdirs
 20260824020000_tenant_rls             ENABLE/FORCE RLS və policy-lər
 20260824030000_email_outbox_delivery  SMTP outbox retry sahələri
 20260824040000_tenant_relation_integrity Cross-tenant əlaqə trigger-ləri
+20260824050000_tenant_login_branding  Tenant login loqosu və fon şəkli sahələri
 ```
 
 Production deploy zamanı:

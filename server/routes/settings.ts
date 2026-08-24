@@ -3,6 +3,12 @@ import { Role, AuditAction } from '@prisma/client';
 import { prisma, systemPrisma } from '../db';
 import { authMiddleware, requireRoles } from '../middleware/auth';
 import { parseExtendedConfig, DEFAULT_EXTENDED_CONFIG } from '../settingsExtended';
+import {
+  deleteTenantUpload,
+  InvalidUploadError,
+  saveBase64ImageUpload,
+  UploadTooLargeError,
+} from '../lib/uploads';
 
 const router = Router();
 
@@ -87,6 +93,90 @@ router.get('/tenant/slug-availability', authMiddleware, requireRoles(Role.SYSTEM
   });
 });
 
+router.post(
+  '/branding/:asset',
+  authMiddleware,
+  requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER),
+  async (req: Request, res: Response) => {
+    const asset = String(req.params.asset);
+    if (asset !== 'logo' && asset !== 'background') {
+      return res.status(404).json({ error: 'Branding asset not found' });
+    }
+    const fileName = String(req.body.fileName ?? '').trim();
+    const data = String(req.body.data ?? '');
+    if (!fileName || !data) return res.status(400).json({ error: 'fileName and data are required' });
+
+    try {
+      const saved = saveBase64ImageUpload(fileName, data, 'branding');
+      const field = asset === 'logo' ? 'loginLogoPath' : 'loginBackgroundPath';
+      const current = await prisma.systemSettings.findFirst();
+      const previousPath = current?.[field] ?? null;
+      const settings = current
+        ? await prisma.systemSettings.update({ where: { id: current.id }, data: { [field]: saved.filePath } })
+        : await prisma.systemSettings.create({ data: { ...DEFAULT_SETTINGS, [field]: saved.filePath } });
+
+      try {
+        deleteTenantUpload(previousPath, 'branding');
+      } catch (error) {
+        console.warn('[branding] Could not remove replaced asset', error);
+      }
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user!.id,
+          userName: `${req.user!.firstName} ${req.user!.lastName}`,
+          action: AuditAction.UPDATE,
+          entityType: 'TenantBranding',
+          details: `${asset === 'logo' ? 'Login logo' : 'Login background'} updated`,
+        },
+      });
+      return res.json({
+        loginLogoPath: settings.loginLogoPath,
+        loginBackgroundPath: settings.loginBackgroundPath,
+      });
+    } catch (error) {
+      if (error instanceof InvalidUploadError || error instanceof UploadTooLargeError) {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
+    }
+  }
+);
+
+router.delete(
+  '/branding/:asset',
+  authMiddleware,
+  requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER),
+  async (req: Request, res: Response) => {
+    const asset = String(req.params.asset);
+    if (asset !== 'logo' && asset !== 'background') {
+      return res.status(404).json({ error: 'Branding asset not found' });
+    }
+    const field = asset === 'logo' ? 'loginLogoPath' : 'loginBackgroundPath';
+    const current = await prisma.systemSettings.findFirst();
+    if (!current) return res.json({ loginLogoPath: null, loginBackgroundPath: null });
+    const previousPath = current[field];
+    const settings = await prisma.systemSettings.update({ where: { id: current.id }, data: { [field]: null } });
+    try {
+      deleteTenantUpload(previousPath, 'branding');
+    } catch (error) {
+      console.warn('[branding] Could not remove reset asset', error);
+    }
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user!.id,
+        userName: `${req.user!.firstName} ${req.user!.lastName}`,
+        action: AuditAction.UPDATE,
+        entityType: 'TenantBranding',
+        details: `${asset === 'logo' ? 'Login logo' : 'Login background'} reset to default`,
+      },
+    });
+    return res.json({
+      loginLogoPath: settings.loginLogoPath,
+      loginBackgroundPath: settings.loginBackgroundPath,
+    });
+  }
+);
+
 router.get('/', authMiddleware, requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER), async (req: Request, res: Response) => {
   let settings = await prisma.systemSettings.findFirst();
   if (!settings) {
@@ -108,6 +198,8 @@ router.put(
       tenantId: _tenantId,
       id: _id,
       extendedConfig: _extendedConfig,
+      loginLogoPath: _loginLogoPath,
+      loginBackgroundPath: _loginBackgroundPath,
       ...rest
     } = req.body;
     const tenantSlug = String(requestedSlug ?? req.tenant!.slug).trim().toLowerCase();
