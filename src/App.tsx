@@ -109,6 +109,7 @@ function TenantGuard({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const checkAuth = useAuthStore((s) => s.checkAuth);
+  const tenantSubdomain = requestedSubdomain();
 
   useEffect(() => {
     checkAuth();
@@ -118,7 +119,16 @@ export default function App() {
     <TenantGuard>
       <Router>
         <Routes>
-        <Route path="/" element={isFileProtocol ? <Navigate to="/app" replace /> : <LandingPage />} />
+        <Route
+          path="/"
+          element={
+            isFileProtocol
+              ? <Navigate to="/app" replace />
+              : tenantSubdomain
+                ? <Navigate to="/login" replace />
+                : <LandingPage />
+          }
+        />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/vendor/order/:token" element={<VendorPortalPage />} />
         <Route element={<AppLayout />}>
