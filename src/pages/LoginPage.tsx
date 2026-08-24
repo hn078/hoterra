@@ -87,7 +87,7 @@ export function LoginPage() {
                 <img
                   src={branding.logoUrl}
                   alt={`${branding.tenantName} logo`}
-                  className="max-h-14 max-w-[240px] object-contain object-left drop-shadow"
+                  className="max-h-28 max-w-[480px] object-contain object-left drop-shadow"
                   onError={() => setBranding((current) => current ? { ...current, logoUrl: null } : current)}
                 />
               ) : (
@@ -143,7 +143,7 @@ export function LoginPage() {
                   <img
                     src={branding.logoUrl}
                     alt={`${branding.tenantName} logo`}
-                    className="max-h-16 max-w-[240px] object-contain"
+                    className="max-h-32 max-w-full object-contain"
                     onError={() => setBranding((current) => current ? { ...current, logoUrl: null } : current)}
                   />
                 ) : (
