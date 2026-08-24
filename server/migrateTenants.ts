@@ -1,3 +1,4 @@
+import './loadEnv';
 import { systemPrisma } from './db';
 
 export const HGI_TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -44,4 +45,3 @@ if (require.main === module) {
     })
     .finally(() => systemPrisma.$disconnect());
 }
-

@@ -3,27 +3,35 @@ import bcrypt from 'bcryptjs';
 import { AuditAction } from '@prisma/client';
 import { prisma } from '../db';
 import { authMiddleware, signToken } from '../middleware/auth';
+import { runtimeConfig } from '../config';
+import { createRateLimiter } from '../middleware/security';
 
 const router = Router();
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('hoterra-invalid-password', 12);
+const loginLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: runtimeConfig.loginRateLimitMax,
+  key: (req) => `${req.ip}:${req.tenant?.id || 'no-tenant'}:${String(req.body?.email || '').trim().toLowerCase()}`,
+});
 
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
+  if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
   }
+  if (email.length > 254 || password.length > 256) {
+    return res.status(400).json({ error: 'Invalid credentials' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
 
-  const user = await prisma.user.findUnique({
-    where: { email: email.toLowerCase() },
+  const user = await prisma.user.findFirst({
+    where: { email: normalizedEmail },
     include: { department: true, customRole: true },
   });
 
-  if (!user || !user.isActive) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
+  const valid = await bcrypt.compare(password, user?.passwordHash || DUMMY_PASSWORD_HASH);
+  if (!user?.isActive || !valid) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 

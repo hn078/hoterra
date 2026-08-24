@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireRoles } from '../middleware/auth';
+import { Role } from '@prisma/client';
 
 const router = Router();
 
@@ -8,7 +9,7 @@ function monthKey(d: Date) {
   return d.toLocaleString('en', { month: 'short' });
 }
 
-router.get('/', authMiddleware, async (_req: Request, res: Response) => {
+router.get('/', authMiddleware, requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER, Role.FINANCE_DIRECTOR), async (_req: Request, res: Response) => {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const sixMonthsAgo = new Date(now);

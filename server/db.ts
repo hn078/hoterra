@@ -1,8 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { requireTenantContext } from './lib/tenantContext';
 
-export const systemPrisma = new PrismaClient();
-
 const TENANT_MODELS = new Set([
   'Department', 'User', 'CustomRole', 'Document', 'DocumentVersion', 'DocumentHistory',
   'DocumentComment', 'DocumentAttachment', 'Template', 'WorkflowRoute', 'Signature',
@@ -15,10 +13,27 @@ const TENANT_MODELS = new Set([
   'VendorInvite', 'VendorInvoice', 'EmailOutbox',
 ]);
 
+function databaseUrlForTenant(tenantId: string, connectionLimit: number): string | undefined {
+  const raw = process.env.DATABASE_URL;
+  if (!raw) return undefined;
+  const url = new URL(raw);
+  const currentOptions = url.searchParams.get('options') || '';
+  url.searchParams.set('options', `${currentOptions} -c hoterra.tenant_id=${tenantId}`.trim());
+  if (!url.searchParams.has('connection_limit')) url.searchParams.set('connection_limit', String(connectionLimit));
+  return url.toString();
+}
+
+function newClient(tenantId: string, connectionLimit: number): PrismaClient {
+  const url = databaseUrlForTenant(tenantId, connectionLimit);
+  return new PrismaClient(url ? { datasources: { db: { url } } } : undefined);
+}
+
+// The system client deliberately uses the wildcard RLS context. Request
+// handlers must always use `prisma`, never this infrastructure client.
+export const systemPrisma = newClient('*', 2);
+
 function addTenantToCreateData(data: unknown, tenantId: string): unknown {
-  if (Array.isArray(data)) {
-    return data.map((row) => addTenantToCreateData(row, tenantId));
-  }
+  if (Array.isArray(data)) return data.map((row) => addTenantToCreateData(row, tenantId));
   if (!data || typeof data !== 'object') return data;
   return { ...(data as Record<string, unknown>), tenantId };
 }
@@ -56,7 +71,6 @@ function scopeArgs(operation: string, input: unknown, tenantId: string) {
   if (whereOperations.has(operation)) {
     args.where = { ...((args.where || {}) as Record<string, unknown>), tenantId };
   }
-
   if (operation === 'create' || operation === 'createMany' || operation === 'createManyAndReturn') {
     args.data = addTenantToCreateData(addTenantToNestedWrites(args.data, tenantId), tenantId);
   } else if (operation === 'update' || operation === 'updateMany' || operation === 'updateManyAndReturn') {
@@ -65,19 +79,49 @@ function scopeArgs(operation: string, input: unknown, tenantId: string) {
     args.create = addTenantToCreateData(addTenantToNestedWrites(args.create, tenantId), tenantId);
     args.update = addTenantToCreateData(addTenantToNestedWrites(args.update, tenantId), tenantId);
   }
-
   return args;
 }
 
-export const prisma = systemPrisma.$extends({
-  name: 'tenant-isolation',
-  query: {
-    $allModels: {
-      async $allOperations({ model, operation, args, query }) {
-        if (!model || !TENANT_MODELS.has(model)) return query(args);
-        const tenant = requireTenantContext();
-        return query(scopeArgs(operation, args, tenant.id));
+function createTenantClient(tenantId: string) {
+  const connectionLimit = Math.max(1, Math.min(10, Number(process.env.TENANT_DB_CONNECTION_LIMIT) || 3));
+  return newClient(tenantId, connectionLimit).$extends({
+    name: 'tenant-isolation',
+    query: {
+      $allModels: {
+        async $allOperations({ model, operation, args, query }) {
+          if (!model || !TENANT_MODELS.has(model)) return query(args);
+          return query(scopeArgs(operation, args, tenantId));
+        },
       },
     },
+  });
+}
+
+type TenantPrismaClient = ReturnType<typeof createTenantClient>;
+const tenantClients = new Map<string, TenantPrismaClient>();
+
+function tenantClient(): TenantPrismaClient {
+  const tenantId = requireTenantContext().id;
+  let client = tenantClients.get(tenantId);
+  if (!client) {
+    client = createTenantClient(tenantId);
+    tenantClients.set(tenantId, client);
+  }
+  return client;
+}
+
+export const prisma = new Proxy({} as TenantPrismaClient, {
+  get(_target, property) {
+    const client = tenantClient();
+    const value = Reflect.get(client, property);
+    return typeof value === 'function' ? value.bind(client) : value;
   },
 });
+
+export async function disconnectPrisma(): Promise<void> {
+  await Promise.all([
+    systemPrisma.$disconnect(),
+    ...[...tenantClients.values()].map((client) => client.$disconnect()),
+  ]);
+  tenantClients.clear();
+}

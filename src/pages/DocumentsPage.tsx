@@ -7,7 +7,6 @@ import {
   Download,
   Search,
   ChevronDown,
-  Settings2,
   LayoutList,
   LayoutGrid,
   Archive,
@@ -22,7 +21,7 @@ import {
 import { Pagination } from '@/components/ui/Pagination';
 import { CategoryBadge, FileTypeIcon } from '@/components/ui/Badges';
 import { api } from '@/lib/api';
-import type { Department, Document, DocumentCategory, DocumentStatus, User } from '@/types';
+import type { Department, Document, DocumentStatus, User } from '@/types';
 import { CATEGORY_LABELS, STATUS_LABELS } from '@/types';
 import { formatDate, getInitials } from '@/lib/utils';
 import { cn } from '@/lib/utils';

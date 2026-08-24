@@ -1,11 +1,9 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
-import path from 'path';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { DocumentStatus, Prisma, Role, AuditAction, DocumentPriority } from '@prisma/client';
 import { prisma } from '../db';
-import { authMiddleware, canViewAllDocuments, canViewDocument } from '../middleware/auth';
+import { authMiddleware, canManageDocuments, canViewAllDocuments, canViewDocument } from '../middleware/auth';
 import { routeParam } from '../utils';
 import {
   expectedSignerRole,
@@ -16,8 +14,7 @@ import {
   statusAfterApproval,
   canUserActOnApproval,
 } from '../lib/signatures';
-import { getUploadsDir } from '../lib/paths';
-import { resolveUploadPath, saveBase64Upload, UploadTooLargeError } from '../lib/uploads';
+import { InvalidUploadError, resolveUploadPath, saveBase64Upload, UploadTooLargeError } from '../lib/uploads';
 import { formatWorkflow } from '../lib/workflows';
 
 const attachedDocumentSelect = {
@@ -991,7 +988,7 @@ router.post('/:id/comments', authMiddleware, async (req: Request, res: Response)
         attachmentFileType: saved.fileType,
       };
     } catch (err) {
-      if (err instanceof UploadTooLargeError) {
+      if (err instanceof UploadTooLargeError || err instanceof InvalidUploadError) {
         return res.status(400).json({ error: err.message });
       }
       throw err;
@@ -1051,22 +1048,32 @@ router.post('/:id/upload', authMiddleware, async (req: Request, res: Response) =
   const { fileName, fileType, data, isAttachment } = req.body;
   if (!fileName || !data) return res.status(400).json({ error: 'fileName and data required' });
 
-  const uploadsDir = getUploadsDir();
+  const document = await prisma.document.findUnique({ where: { id } });
+  if (!document || !canViewDocument(req.user!, document)) {
+    return res.status(404).json({ error: 'Document not found' });
+  }
+  if (document.authorId !== req.user!.id && !canManageDocuments(req.user!.role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
-  const ext = path.extname(fileName) || '.bin';
-  const storedName = `${uuidv4()}${ext}`;
-  const filePath = path.join(uploadsDir, storedName);
-  const buffer = Buffer.from(data, 'base64');
-  fs.writeFileSync(filePath, buffer);
+  let saved;
+  try {
+    saved = saveBase64Upload(String(fileName), String(data), fileType, 'documents');
+  } catch (error) {
+    if (error instanceof UploadTooLargeError || error instanceof InvalidUploadError) {
+      return res.status(400).json({ error: error.message });
+    }
+    throw error;
+  }
 
   if (isAttachment) {
     const attachment = await prisma.documentAttachment.create({
       data: {
         documentId: id,
-        fileName,
-        filePath: `/uploads/${storedName}`,
-        fileSize: buffer.length,
-        fileType: fileType || ext.replace('.', ''),
+        fileName: saved.fileName,
+        filePath: saved.filePath,
+        fileSize: saved.fileSize,
+        fileType: saved.fileType,
       },
     });
     return res.status(201).json(attachment);
@@ -1076,9 +1083,9 @@ router.post('/:id/upload', authMiddleware, async (req: Request, res: Response) =
     where: { id },
     data: {
       fileName,
-      filePath: `/uploads/${storedName}`,
-      fileType: fileType || ext.replace('.', ''),
-      fileSize: buffer.length,
+      filePath: saved.filePath,
+      fileType: saved.fileType,
+      fileSize: saved.fileSize,
     },
   });
   res.json({ ...updated, tags: parseTags(updated.tags) });

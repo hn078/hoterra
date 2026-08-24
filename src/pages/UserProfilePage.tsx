@@ -17,7 +17,7 @@ import { PageTabs } from '@/components/ui/PageTabs';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
-import { uploadUrl } from '@/lib/signatures';
+import { useProtectedAssetUrl } from '@/hooks/useProtectedAssetUrl';
 import type { AuditLog, Document, User } from '@/types';
 import { ROLE_LABELS } from '@/types';
 import { mapAuditAction, ROLE_DEFINITIONS } from '@/data/mock';
@@ -56,6 +56,7 @@ export function UserProfilePage() {
   const [user, setUser] = useState<UserDetail | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [uploadingSignature, setUploadingSignature] = useState(false);
+  const signatureUrl = useProtectedAssetUrl(user?.signatureImage && id ? `/files/users/${id}/signature` : null);
 
   const canEditSignature = Boolean(id && currentUser && (currentUser.id === id || currentUser.role === 'SYSTEM_ADMINISTRATOR' || currentUser.role === 'GENERAL_MANAGER'));
 
@@ -156,10 +157,10 @@ export function UserProfilePage() {
             <p className="mb-3 text-xs text-gray-500">
               Upload a PNG or JPG image of your handwritten signature. It will be placed on documents when you sign.
             </p>
-            {user.signatureImage ? (
+            {user.signatureImage && signatureUrl ? (
               <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3">
                 <img
-                  src={uploadUrl(user.signatureImage)}
+                  src={signatureUrl}
                   alt="User signature"
                   className="mx-auto max-h-16 w-full object-contain"
                 />
@@ -174,7 +175,7 @@ export function UserProfilePage() {
                 {uploadingSignature ? 'Uploading...' : user.signatureImage ? 'Replace Signature' : 'Upload Signature'}
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  accept="image/png,image/jpeg,image/webp"
                   className="hidden"
                   disabled={uploadingSignature}
                   onChange={(e) => {

@@ -385,6 +385,26 @@ class ApiClient {
     }>('/roles');
   }
 
+  async getProtectedObjectUrl(path: string): Promise<string> {
+    const token = this.getToken();
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: {
+        'X-Tenant-Slug': this.tenantSlug,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!res.ok) throw new Error('Protected file could not be loaded');
+    return URL.createObjectURL(await res.blob());
+  }
+
+  downloadDocumentFile(documentId: string, fileName: string) {
+    return this.download(`/files/documents/${documentId}`, fileName);
+  }
+
+  downloadDocumentAttachment(documentId: string, attachmentId: string, fileName: string) {
+    return this.download(`/files/documents/${documentId}/attachments/${attachmentId}`, fileName);
+  }
+
   getCurrentTenant() {
     return this.request<{ id: string; slug: string; name: string; url: string }>('/tenant/current');
   }

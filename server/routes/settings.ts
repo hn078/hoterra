@@ -49,7 +49,7 @@ function withExtended(
   };
 }
 
-router.get('/stats', authMiddleware, async (_req: Request, res: Response) => {
+router.get('/stats', authMiddleware, requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER), async (_req: Request, res: Response) => {
   const [users, docBytes, attBytes] = await Promise.all([
     prisma.user.count({ where: { isActive: true } }),
     prisma.document.aggregate({ _sum: { fileSize: true } }),
@@ -73,7 +73,7 @@ router.get('/stats', authMiddleware, async (_req: Request, res: Response) => {
   });
 });
 
-router.get('/tenant/slug-availability', authMiddleware, async (req: Request, res: Response) => {
+router.get('/tenant/slug-availability', authMiddleware, requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER), async (req: Request, res: Response) => {
   const slug = String(req.query.slug ?? '').trim().toLowerCase();
   if (!TENANT_SLUG_PATTERN.test(slug) || RESERVED_TENANT_SLUGS.has(slug)) {
     return res.json({ slug, available: false, reason: 'invalid' });
@@ -87,7 +87,7 @@ router.get('/tenant/slug-availability', authMiddleware, async (req: Request, res
   });
 });
 
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
+router.get('/', authMiddleware, requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER), async (req: Request, res: Response) => {
   let settings = await prisma.systemSettings.findFirst();
   if (!settings) {
     settings = await prisma.systemSettings.create({ data: DEFAULT_SETTINGS });
@@ -194,7 +194,7 @@ router.post(
   }
 );
 
-router.get('/maintenance/logs', authMiddleware, async (_req: Request, res: Response) => {
+router.get('/maintenance/logs', authMiddleware, requireRoles(Role.SYSTEM_ADMINISTRATOR), async (_req: Request, res: Response) => {
   const logs = await prisma.auditLog.findMany({
     orderBy: { createdAt: 'desc' },
     take: 100,

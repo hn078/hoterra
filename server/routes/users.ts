@@ -1,18 +1,24 @@
-import fs from 'fs';
 import path from 'path';
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { v4 as uuidv4 } from 'uuid';
 import { Role } from '@prisma/client';
 import { prisma } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { routeParam } from '../utils';
-import { getUploadsDir, ensureDir } from '../lib/paths';
+import { InvalidUploadError, saveBase64Upload, UploadTooLargeError } from '../lib/uploads';
 
 const router = Router();
 
 function requireAdmin(role: Role) {
   return role === Role.SYSTEM_ADMINISTRATOR || role === Role.GENERAL_MANAGER;
+}
+
+function validEmail(value: string) {
+  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function validPassword(value: string) {
+  return value.length >= 12 && value.length <= 128;
 }
 
 router.get('/', authMiddleware, async (_req: Request, res: Response) => {
@@ -45,15 +51,25 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (!validEmail(normalizedEmail)) return res.status(400).json({ error: 'A valid email is required' });
+  if (!validPassword(String(password))) return res.status(400).json({ error: 'Password must be 12–128 characters' });
+  if (!Object.values(Role).includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (role === Role.SYSTEM_ADMINISTRATOR && req.user!.role !== Role.SYSTEM_ADMINISTRATOR) {
+    return res.status(403).json({ error: 'Only a System Administrator can grant this role' });
+  }
+  const existing = await prisma.user.findFirst({ where: { email: normalizedEmail } });
   if (existing) return res.status(400).json({ error: 'Email already exists' });
 
   const customRole = customRoleId ? await prisma.customRole.findUnique({ where: { id: customRoleId } }) : null;
   if (customRoleId && !customRole) return res.status(400).json({ error: 'Custom role not found' });
-  const passwordHash = await bcrypt.hash(password, 10);
+  if (customRole?.baseRole === Role.SYSTEM_ADMINISTRATOR && req.user!.role !== Role.SYSTEM_ADMINISTRATOR) {
+    return res.status(403).json({ error: 'Only a System Administrator can grant this role' });
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
   const user = await prisma.user.create({
     data: {
-      email,
+      email: normalizedEmail,
       passwordHash,
       firstName,
       lastName,
@@ -84,12 +100,28 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   const id = routeParam(req.params.id);
   const { firstName, lastName, role, customRoleId, departmentId, isActive, password } = req.body;
 
+  if (role !== undefined && !Object.values(Role).includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  if (role === Role.SYSTEM_ADMINISTRATOR && req.user!.role !== Role.SYSTEM_ADMINISTRATOR) {
+    return res.status(403).json({ error: 'Only a System Administrator can grant this role' });
+  }
+  if (password !== undefined && !validPassword(String(password))) {
+    return res.status(400).json({ error: 'Password must be 12–128 characters' });
+  }
+  if (req.user!.id === id && isActive === false) {
+    return res.status(400).json({ error: 'You cannot deactivate your own account' });
+  }
+
   const data: Record<string, unknown> = {};
   if (firstName) data.firstName = firstName;
   if (lastName) data.lastName = lastName;
   if (customRoleId !== undefined) {
     const customRole = customRoleId ? await prisma.customRole.findUnique({ where: { id: customRoleId } }) : null;
     if (customRoleId && !customRole) return res.status(400).json({ error: 'Custom role not found' });
+    if (customRole?.baseRole === Role.SYSTEM_ADMINISTRATOR && req.user!.role !== Role.SYSTEM_ADMINISTRATOR) {
+      return res.status(403).json({ error: 'Only a System Administrator can grant this role' });
+    }
     data.customRoleId = customRole?.id ?? null;
     if (customRole) data.role = customRole.baseRole;
     else if (role) data.role = role;
@@ -99,7 +131,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
   }
   if (departmentId !== undefined) data.departmentId = departmentId || null;
   if (isActive !== undefined) data.isActive = isActive;
-  if (password) data.passwordHash = await bcrypt.hash(password, 10);
+  if (password) data.passwordHash = await bcrypt.hash(password, 12);
 
   const user = await prisma.user.update({
     where: { id },
@@ -120,14 +152,19 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 });
 
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
+  const requestedId = routeParam(req.params.id);
   const user = await prisma.user.findUnique({
-    where: { id: routeParam(req.params.id) },
+    where: { id: requestedId },
     include: {
       department: true,
       _count: { select: { documents: true, signatures: true, auditLogs: true } },
     },
   });
   if (!user) return res.status(404).json({ error: 'User not found' });
+  const canViewProfile = req.user!.id === requestedId ||
+    requireAdmin(req.user!.role) ||
+    (req.user!.role === Role.HOD && req.user!.departmentId === user.departmentId);
+  if (!canViewProfile) return res.status(403).json({ error: 'Forbidden' });
 
   const recentActivity = await prisma.auditLog.findMany({
     where: { userId: user.id },
@@ -169,23 +206,25 @@ router.post('/:id/signature', authMiddleware, async (req: Request, res: Response
     return res.status(400).json({ error: 'fileName and data required' });
   }
 
-  const signaturesDir = path.join(getUploadsDir(), 'signatures');
-  ensureDir(signaturesDir);
-
   const ext = path.extname(fileName).toLowerCase() || '.png';
-  const allowed = ['.png', '.jpg', '.jpeg', '.webp', '.svg'];
+  const allowed = ['.png', '.jpg', '.jpeg', '.webp'];
   if (!allowed.includes(ext)) {
-    return res.status(400).json({ error: 'Supported formats: PNG, JPG, WEBP, SVG' });
+    return res.status(400).json({ error: 'Supported formats: PNG, JPG, WEBP' });
   }
 
-  const storedName = `${id}${ext}`;
-  const filePath = path.join(signaturesDir, storedName);
-  const buffer = Buffer.from(data, 'base64');
-  fs.writeFileSync(filePath, buffer);
+  let saved;
+  try {
+    saved = saveBase64Upload(fileName, data, ext.slice(1), 'signatures');
+  } catch (error) {
+    if (error instanceof UploadTooLargeError || error instanceof InvalidUploadError) {
+      return res.status(400).json({ error: error.message });
+    }
+    throw error;
+  }
 
   const user = await prisma.user.update({
     where: { id },
-    data: { signatureImage: `/uploads/signatures/${storedName}` },
+    data: { signatureImage: saved.filePath },
     include: { department: true },
   });
 

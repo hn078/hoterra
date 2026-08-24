@@ -112,19 +112,55 @@ enum WorkforceShift {
 }
 
 model Tenant {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                               String                            @id @default(uuid())
+  name                             String
+  slug                             String                            @unique
+  isActive                         Boolean                           @default(true)
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+  departments                      Department[]
+  users                            User[]
+  customRoles                      CustomRole[]
+  documents                        Document[]
+  documentVersions                 DocumentVersion[]
+  documentHistory                  DocumentHistory[]
+  documentComments                 DocumentComment[]
+  documentAttachments              DocumentAttachment[]
+  templates                        Template[]
+  workflowRoutes                   WorkflowRoute[]
+  signatures                       Signature[]
+  auditLogs                        AuditLog[]
+  notifications                    Notification[]
+  systemSettings                   SystemSettings?
+  userFavorites                    UserFavorite[]
+  conversations                    Conversation[]
+  conversationParticipants         ConversationParticipant[]
+  messages                         Message[]
+  workforcePositions               WorkforcePosition[]
+  vendors                          Vendor[]
+  vendorServiceRates               VendorServiceRate[]
+  vendorApprovalEvents             VendorApprovalEvent[]
+  workforceApprovalRoutes          WorkforceApprovalRoute[]
+  departmentCasualBudgets          DepartmentCasualBudget[]
+  workforceSettings                WorkforceSettings?
+  workforceRequests                WorkforceRequest[]
+  workforceRequestItems            WorkforceRequestItem[]
+  workforceVendorCorrectionReviews WorkforceVendorCorrectionReview[]
+  workforceVendorCorrections       WorkforceVendorCorrection[]
+  workforceQualityEvaluations      WorkforceQualityEvaluation[]
+  workforceRequestEvents           WorkforceRequestEvent[]
+  workforceRequestTemplates        WorkforceRequestTemplate[]
+  vendorInvites                    VendorInvite[]
+  vendorInvoices                   VendorInvoice[]
+  emailOutbox                      EmailOutbox[]
 }
 
 model Department {
-  tenantId               String?
+  tenantId               String                     @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant                 Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                     String                     @id @default(uuid())
-  name                   String                     @unique
-  code                   String                     @unique
+  name                   String
+  code                   String
   color                  String                     @default("#294660")
   location               String                     @default("Main Hotel")
   description            String?
@@ -139,13 +175,16 @@ model Department {
   workforceTemplates     WorkforceRequestTemplate[]
   workforcePositions     WorkforcePosition[]
 
+  @@unique([tenantId, name])
+  @@unique([tenantId, code])
   @@index([tenantId])
 }
 
 model User {
-  tenantId                 String?
+  tenantId                 String                    @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                       String                    @id @default(uuid())
-  email                    String                    @unique
+  email                    String
   passwordHash             String
   pinHash                  String?
   firstName                String
@@ -169,6 +208,7 @@ model User {
   messages                 Message[]
   workforceRequests        WorkforceRequest[]        @relation("WorkforceRequestCreator")
 
+  @@unique([tenantId, email])
   @@index([tenantId])
 }
 
@@ -186,9 +226,10 @@ enum WorkforceRateUnit {
 }
 
 model CustomRole {
-  tenantId    String?
+  tenantId    String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id          String   @id @default(uuid())
-  name        String   @unique
+  name        String
   description String   @default("")
   baseRole    Role     @default(EMPLOYEE)
   permissions Json
@@ -197,14 +238,16 @@ model CustomRole {
   updatedAt   DateTime @updatedAt
   users       User[]
 
+  @@unique([tenantId, name])
   @@index([tenantId])
 }
 
 model Document {
-  tenantId           String?
+  tenantId           String               @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                 String               @id @default(uuid())
   title              String
-  code               String               @unique
+  code               String
   version            String               @default("1.0")
   description        String?
   content            String?
@@ -248,11 +291,13 @@ model Document {
   attachedInMessages Message[]            @relation("MessageDocument")
   attachedInComments DocumentComment[]    @relation("CommentAttachedDocument")
 
+  @@unique([tenantId, code])
   @@index([tenantId])
 }
 
 model DocumentVersion {
-  tenantId   String?
+  tenantId   String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id         String   @id @default(uuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id])
@@ -266,7 +311,8 @@ model DocumentVersion {
 }
 
 model DocumentHistory {
-  tenantId   String?
+  tenantId   String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id         String   @id @default(uuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id])
@@ -280,7 +326,8 @@ model DocumentHistory {
 }
 
 model DocumentComment {
-  tenantId           String?
+  tenantId           String    @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                 String    @id @default(uuid())
   documentId         String
   document           Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -300,7 +347,8 @@ model DocumentComment {
 }
 
 model DocumentAttachment {
-  tenantId   String?
+  tenantId   String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id         String   @id @default(uuid())
   documentId String
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -314,7 +362,8 @@ model DocumentAttachment {
 }
 
 model Template {
-  tenantId           String?
+  tenantId           String           @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                 String           @id @default(uuid())
   name               String
   description        String?
@@ -335,7 +384,8 @@ model Template {
 }
 
 model WorkflowRoute {
-  tenantId    String?
+  tenantId    String         @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id          String         @id @default(uuid())
   name        String
   description String?
@@ -349,7 +399,8 @@ model WorkflowRoute {
 }
 
 model Signature {
-  tenantId    String?
+  tenantId    String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id          String   @id @default(uuid())
   documentId  String
   document    Document @relation(fields: [documentId], references: [id])
@@ -369,7 +420,8 @@ model Signature {
 }
 
 model AuditLog {
-  tenantId   String?
+  tenantId   String      @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id         String      @id @default(uuid())
   userId     String?
   user       User?       @relation(fields: [userId], references: [id])
@@ -386,7 +438,8 @@ model AuditLog {
 }
 
 model Notification {
-  tenantId  String?
+  tenantId  String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id        String   @id @default(uuid())
   userId    String
   title     String
@@ -400,7 +453,8 @@ model Notification {
 }
 
 model SystemSettings {
-  tenantId            String? @unique
+  tenantId            String  @unique @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                  String  @id @default(uuid())
   companyName         String  @default("HOTERRA Hotels & Resorts")
   companyAddress      String  @default("Baku, Azerbaijan")
@@ -427,7 +481,8 @@ model SystemSettings {
 }
 
 model UserFavorite {
-  tenantId   String?
+  tenantId   String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id         String   @id @default(uuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -440,23 +495,26 @@ model UserFavorite {
 }
 
 model Conversation {
-  tenantId     String?
+  tenantId     String                    @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant       Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id           String                    @id @default(uuid())
   type         ConversationType
   departmentId String?
   department   Department?               @relation(fields: [departmentId], references: [id])
-  directKey    String?                   @unique
+  directKey    String?
   createdAt    DateTime                  @default(now())
   updatedAt    DateTime                  @updatedAt
   participants ConversationParticipant[]
   messages     Message[]
 
-  @@unique([type, departmentId])
+  @@unique([tenantId, directKey])
+  @@unique([tenantId, type, departmentId])
   @@index([tenantId])
 }
 
 model ConversationParticipant {
-  tenantId       String?
+  tenantId       String       @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id             String       @id @default(uuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -470,7 +528,8 @@ model ConversationParticipant {
 }
 
 model Message {
-  tenantId           String?
+  tenantId           String       @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant             Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                 String       @id @default(uuid())
   conversationId     String
   conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -489,9 +548,10 @@ model Message {
 }
 
 model WorkforcePosition {
-  tenantId     String?
+  tenantId     String                     @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant       Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id           String                     @id @default(uuid())
-  name         String                     @unique
+  name         String
   departmentId String?
   department   Department?                @relation(fields: [departmentId], references: [id])
   isActive     Boolean                    @default(true)
@@ -501,13 +561,15 @@ model WorkforcePosition {
   vendorRates  VendorServiceRate[]
   requestItems WorkforceRequestItem[]
 
+  @@unique([tenantId, name])
   @@index([tenantId])
 }
 
 model Vendor {
-  tenantId             String?
+  tenantId             String                       @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant               Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                   String                       @id @default(uuid())
-  name                 String                       @unique
+  name                 String
   contactEmail         String?
   phone                String?
   isApproved           Boolean                      @default(true)
@@ -532,11 +594,13 @@ model Vendor {
   evaluations          WorkforceQualityEvaluation[]
   requestItems         WorkforceRequestItem[]
 
+  @@unique([tenantId, name])
   @@index([tenantId])
 }
 
 model VendorServiceRate {
-  tenantId     String?
+  tenantId     String                 @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id           String                 @id @default(uuid())
   vendorId     String
   vendor       Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -558,7 +622,8 @@ model VendorServiceRate {
 }
 
 model VendorApprovalEvent {
-  tenantId  String?
+  tenantId  String   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id        String   @id @default(uuid())
   vendorId  String
   vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -574,7 +639,8 @@ model VendorApprovalEvent {
 }
 
 model WorkforceApprovalRoute {
-  tenantId     String?
+  tenantId     String     @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id           String     @id @default(uuid())
   departmentId String     @unique
   department   Department @relation(fields: [departmentId], references: [id])
@@ -587,7 +653,8 @@ model WorkforceApprovalRoute {
 }
 
 model DepartmentCasualBudget {
-  tenantId     String?
+  tenantId     String     @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id           String     @id @default(uuid())
   departmentId String
   department   Department @relation(fields: [departmentId], references: [id])
@@ -602,7 +669,8 @@ model DepartmentCasualBudget {
 }
 
 model WorkforceSettings {
-  tenantId               String? @unique
+  tenantId               String  @unique @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant                 Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                     String  @id @default(uuid())
   hotelName              String  @default("HOTERRA")
   hotelsJson             String  @default("[\"HOTERRA\"]")
@@ -615,9 +683,10 @@ model WorkforceSettings {
 }
 
 model WorkforceRequest {
-  tenantId                String?
+  tenantId                String                            @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant                  Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                      String                            @id @default(uuid())
-  code                    String                            @unique
+  code                    String
   hotelName               String                            @default("HOTERRA")
   departmentId            String
   department              Department                        @relation(fields: [departmentId], references: [id])
@@ -665,11 +734,13 @@ model WorkforceRequest {
   items                   WorkforceRequestItem[]
   vendorCorrectionReviews WorkforceVendorCorrectionReview[]
 
+  @@unique([tenantId, code])
   @@index([tenantId])
 }
 
 model WorkforceRequestItem {
-  tenantId          String?
+  tenantId          String                      @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                String                      @id @default(uuid())
   requestId         String
   request           WorkforceRequest            @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -695,7 +766,8 @@ model WorkforceRequestItem {
 }
 
 model WorkforceVendorCorrectionReview {
-  tenantId         String?
+  tenantId         String                      @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id               String                      @id @default(uuid())
   requestId        String
   request          WorkforceRequest            @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -725,7 +797,8 @@ model WorkforceVendorCorrectionReview {
 }
 
 model WorkforceVendorCorrection {
-  tenantId           String?
+  tenantId           String                          @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant             Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                 String                          @id @default(uuid())
   reviewId           String
   review             WorkforceVendorCorrectionReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
@@ -752,7 +825,8 @@ model WorkforceVendorCorrection {
 }
 
 model WorkforceQualityEvaluation {
-  tenantId               String?
+  tenantId               String                   @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant                 Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id                     String                   @id @default(uuid())
   requestId              String
   request                WorkforceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -771,7 +845,8 @@ model WorkforceQualityEvaluation {
 }
 
 model WorkforceRequestEvent {
-  tenantId  String?
+  tenantId  String           @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id        String           @id @default(uuid())
   requestId String
   request   WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -785,7 +860,8 @@ model WorkforceRequestEvent {
 }
 
 model WorkforceRequestTemplate {
-  tenantId        String?
+  tenantId        String              @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id              String              @id @default(uuid())
   name            String
   departmentId    String?
@@ -808,7 +884,8 @@ model WorkforceRequestTemplate {
 }
 
 model VendorInvite {
-  tenantId    String?
+  tenantId    String           @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id          String           @id @default(uuid())
   token       String           @unique
   requestId   String
@@ -824,7 +901,8 @@ model VendorInvite {
 }
 
 model VendorInvoice {
-  tenantId      String?
+  tenantId      String           @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   id            String           @id @default(uuid())
   requestId     String
   request       WorkforceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -843,16 +921,21 @@ model VendorInvoice {
 }
 
 model EmailOutbox {
-  tenantId   String?
-  id         String    @id @default(uuid())
-  toEmail    String
-  subject    String
-  body       String
-  entityType String?
-  entityId   String?
-  status     String    @default("QUEUED")
-  sentAt     DateTime?
-  createdAt  DateTime  @default(now())
+  tenantId      String    @default(dbgenerated("current_setting('hoterra.tenant_id', true)"))
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  id            String    @id @default(uuid())
+  toEmail       String
+  subject       String
+  body          String
+  entityType    String?
+  entityId      String?
+  status        String    @default("QUEUED")
+  attempts      Int       @default(0)
+  lastError     String?
+  nextAttemptAt DateTime?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
 
   @@index([tenantId])
+  @@index([tenantId, status, nextAttemptAt])
 }

@@ -271,7 +271,16 @@ function canApproveVendor(user: NonNullable<Request['user']>, vendor: { approval
 router.get(
   '/meta',
   authMiddleware,
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const isProcurementUser = Boolean(await prisma.department.findFirst({
+      where: { id: req.user!.departmentId || '__unassigned_hod__', code: 'PR' },
+      select: { id: true },
+    }));
+    const canSeeVendorCatalog = isProcurementUser || ([
+      Role.SYSTEM_ADMINISTRATOR,
+      Role.GENERAL_MANAGER,
+      Role.FINANCE_DIRECTOR,
+    ] as Role[]).includes(req.user!.role);
     const [positions, vendors, catalogRates, settings, routes, budgets, templates, approvers] = await Promise.all([
       prisma.workforcePosition.findMany({ orderBy: { name: 'asc' } }),
       prisma.vendor.findMany({ include: { approvalEvents: { orderBy: { signedAt: 'desc' } }, serviceRates: { include: { position: true } } }, orderBy: { name: 'asc' } }),
@@ -300,10 +309,23 @@ router.get(
       }),
     ]);
 
+    const visibleCatalogRates = !canSeeVendorCatalog
+      ? [...catalogRates.reduce((lowest, rate) => {
+          const key = `${rate.positionId}:${rate.unit}`;
+          const current = lowest.get(key);
+          if (!current || rate.price < current.price) lowest.set(key, rate);
+          return lowest;
+        }, new Map<string, (typeof catalogRates)[number]>()).values()].map((rate) => ({
+          ...rate,
+          vendorId: '',
+          vendor: { ...rate.vendor, id: '', name: 'Approved vendor', contactEmail: null, phone: null },
+        }))
+      : catalogRates;
+
     res.json({
       positions,
-      vendors,
-      catalogRates,
+      vendors: canSeeVendorCatalog ? vendors : [],
+      catalogRates: visibleCatalogRates,
       settings: {
         ...settings,
         hotels: settings.hotels,
@@ -665,6 +687,7 @@ router.delete(
 router.get(
   '/reports',
   authMiddleware,
+  requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER, Role.FINANCE_DIRECTOR, Role.HOD),
   asyncHandler(async (req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear();
     const month = Number(req.query.month) || new Date().getMonth() + 1;
@@ -2001,6 +2024,7 @@ router.post(
 router.get(
   '/payroll',
   authMiddleware,
+  requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER, Role.FINANCE_DIRECTOR),
   asyncHandler(async (req, res) => {
     const status = req.query.status ? String(req.query.status) : undefined;
     const invoices = await prisma.vendorInvoice.findMany({
@@ -2020,7 +2044,7 @@ router.get(
 router.post(
   '/payroll/invoices',
   authMiddleware,
-  requireRoles(Role.FINANCE_DIRECTOR, Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR, Role.HOD),
+  requireRoles(Role.FINANCE_DIRECTOR, Role.GENERAL_MANAGER, Role.SYSTEM_ADMINISTRATOR),
   asyncHandler(async (req, res) => {
     const requestId = String(req.body.requestId || '');
     const invoiceNumber = String(req.body.invoiceNumber || '').trim();
@@ -2092,6 +2116,7 @@ router.post(
 router.get(
   '/reports/export.csv',
   authMiddleware,
+  requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER, Role.FINANCE_DIRECTOR, Role.HOD),
   asyncHandler(async (req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear();
     const month = Number(req.query.month) || new Date().getMonth() + 1;
@@ -2145,7 +2170,7 @@ router.get(
 router.get(
   '/outbox',
   authMiddleware,
-  requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER),
+  requireRoles(Role.SYSTEM_ADMINISTRATOR),
   asyncHandler(async (_req, res) => {
     res.json(await listOutbox(100));
   })

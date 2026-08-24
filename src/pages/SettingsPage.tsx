@@ -535,12 +535,12 @@ export function SettingsPage() {
               <SettingsField label="Search Index Version">
                 <span className="text-sm text-gray-600">{String(system.searchIndexVersion ?? 1)}</span>
               </SettingsField>
-              {system.lastCacheClear && (
+              {Boolean(system.lastCacheClear) && (
                 <SettingsField label="Last Cache Clear">
                   <span className="text-sm text-gray-600">{formatDateTime(String(system.lastCacheClear))}</span>
                 </SettingsField>
               )}
-              {system.lastReindex && (
+              {Boolean(system.lastReindex) && (
                 <SettingsField label="Last Reindex">
                   <span className="text-sm text-gray-600">{formatDateTime(String(system.lastReindex))}</span>
                 </SettingsField>

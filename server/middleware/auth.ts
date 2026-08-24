@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { type JwtPayload, type SignOptions } from 'jsonwebtoken';
 import { Role } from '@prisma/client';
+import { runtimeConfig } from '../config';
+import { prisma } from '../db';
 
 export interface AuthUser {
   id: string;
@@ -20,13 +22,23 @@ declare global {
   }
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'hoterra-dev-secret';
+type TokenClaims = JwtPayload & { tenantId?: string };
 
 export function signToken(user: AuthUser): string {
-  return jwt.sign(user, JWT_SECRET, { expiresIn: '8h' });
+  return jwt.sign(
+    { tenantId: user.tenantId },
+    runtimeConfig.jwtSecret,
+    {
+      algorithm: 'HS256',
+      expiresIn: runtimeConfig.jwtExpiresIn as SignOptions['expiresIn'],
+      issuer: 'hoterra-api',
+      audience: 'hoterra-web',
+      subject: user.id,
+    }
+  );
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -34,11 +46,28 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 
   try {
     const token = header.slice(7);
-    const user = jwt.verify(token, JWT_SECRET) as AuthUser;
-    if (!req.tenant || user.tenantId !== req.tenant.id) {
+    const claims = jwt.verify(token, runtimeConfig.jwtSecret, {
+      algorithms: ['HS256'],
+      issuer: 'hoterra-api',
+      audience: 'hoterra-web',
+    }) as TokenClaims;
+    if (!req.tenant || !claims.sub || claims.tenantId !== req.tenant.id) {
       return res.status(401).json({ error: 'Token is not valid for this hotel workspace' });
     }
-    req.user = user;
+
+    const currentUser = await prisma.user.findUnique({ where: { id: claims.sub } });
+    if (!currentUser?.isActive) {
+      return res.status(401).json({ error: 'Account is no longer active' });
+    }
+    req.user = {
+      id: currentUser.id,
+      tenantId: currentUser.tenantId,
+      email: currentUser.email,
+      role: currentUser.role,
+      firstName: currentUser.firstName,
+      lastName: currentUser.lastName,
+      departmentId: currentUser.departmentId,
+    };
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid token' });

@@ -1,7 +1,7 @@
 export const DEFAULT_EXTENDED_CONFIG = {
   security: {
     passwordPolicy: 'Strong',
-    minPasswordLength: 8,
+    minPasswordLength: 12,
     sessionTimeoutMinutes: 30,
     enable2FA: true,
     ipRestrictions: ['192.168.1.0/24', '10.0.0.0/8', '172.16.0.0/12'],

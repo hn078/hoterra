@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
+import crypto from 'crypto';
 import { patchPrismaModuleResolution } from './prisma-setup';
 
 const isDev = !app.isPackaged;
@@ -76,7 +77,7 @@ function prepareDatabase() {
   fs.mkdirSync(uploadsDir, { recursive: true });
 
   process.env.DATABASE_URL = toFileUrl(dbFile);
-  process.env.JWT_SECRET = process.env.JWT_SECRET || 'hoterra-hdms-production-secret';
+  process.env.JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(48).toString('base64url');
   process.env.PORT = process.env.PORT || '3211';
   process.env.HOTERRA_UPLOADS_DIR = uploadsDir;
   log(`Database: ${process.env.DATABASE_URL}`);

@@ -17,7 +17,7 @@ import {
   getUnreadCount,
   messageInclude,
 } from '../lib/conversations';
-import { resolveUploadPath, saveBase64Upload, UploadTooLargeError } from '../lib/uploads';
+import { InvalidUploadError, resolveUploadPath, saveBase64Upload, UploadTooLargeError } from '../lib/uploads';
 
 const router = Router();
 
@@ -214,7 +214,7 @@ router.post('/:id/messages', authMiddleware, asyncHandler(async (req: Request, r
         attachmentFileType: saved.fileType,
       };
     } catch (err) {
-      if (err instanceof UploadTooLargeError) {
+      if (err instanceof UploadTooLargeError || err instanceof InvalidUploadError) {
         return res.status(400).json({ error: err.message });
       }
       throw err;

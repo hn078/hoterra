@@ -1,3 +1,4 @@
+import './loadEnv';
 import bcrypt from 'bcryptjs';
 import {
   Role,
@@ -37,11 +38,14 @@ const TEMPLATES = [
 ];
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+    throw new Error('Demo seed is disabled in production. Set ALLOW_DEMO_SEED=true only for an intentional disposable demo environment.');
+  }
   console.log('Seeding HOTERRA HDMS database...');
 
   for (const dept of DEPARTMENTS) {
     await prisma.department.upsert({
-      where: { code: dept.code },
+      where: { tenantId_code: { tenantId: HGI_TENANT_ID, code: dept.code } },
       update: { location: dept.location, description: dept.description },
       create: dept,
     });
@@ -50,9 +54,12 @@ async function main() {
   const departments = await prisma.department.findMany();
   const deptByCode = Object.fromEntries(departments.map((d) => [d.code, d]));
 
-  const passwordHash = await bcrypt.hash('password123', 10);
-  const gmPasswordHash = await bcrypt.hash('Test12345', 10);
-  const pinHash = await bcrypt.hash('1234', 10);
+  const demoPassword = process.env.DEMO_USER_PASSWORD || 'password123';
+  const gmPassword = process.env.DEMO_GM_PASSWORD || 'Test12345';
+  const demoPin = process.env.DEMO_SIGNATURE_PIN || '1234';
+  const passwordHash = await bcrypt.hash(demoPassword, 12);
+  const gmPasswordHash = await bcrypt.hash(gmPassword, 12);
+  const pinHash = await bcrypt.hash(demoPin, 12);
 
   const users = [
     {
@@ -94,7 +101,7 @@ async function main() {
 
   for (const u of users) {
     await prisma.user.upsert({
-      where: { email: u.email },
+      where: { tenantId_email: { tenantId: HGI_TENANT_ID, email: u.email } },
       update: {},
       create: {
         ...u,
@@ -260,7 +267,7 @@ async function main() {
 
   for (const doc of sampleDocs) {
     await prisma.document.upsert({
-      where: { code: doc.code },
+      where: { tenantId_code: { tenantId: HGI_TENANT_ID, code: doc.code } },
       update: {
         workflowId: doc.workflowId ?? 'standard',
         nextReviewDate: doc.nextReviewDate ?? undefined,
@@ -282,7 +289,7 @@ async function main() {
     });
   }
 
-  const publishedDoc = await prisma.document.findUnique({
+  const publishedDoc = await prisma.document.findFirst({
     where: { code: 'FO-SOP-001' },
   });
 
@@ -337,7 +344,7 @@ async function main() {
     }
   }
 
-  const reviewDoc = await prisma.document.findUnique({ where: { code: 'HK-CHK-012' } });
+  const reviewDoc = await prisma.document.findFirst({ where: { code: 'HK-CHK-012' } });
   if (reviewDoc) {
     const nigar = userByEmail['nigar.rustamova@hoterra.az'];
     const elnur = userByEmail['elnur.mahmudov@hoterra.az'];
@@ -467,7 +474,7 @@ async function main() {
       },
     });
 
-    const checkInDoc = await prisma.document.findUnique({ where: { code: 'FO-SOP-001' } });
+    const checkInDoc = await prisma.document.findFirst({ where: { code: 'FO-SOP-001' } });
     await prisma.message.create({
       data: {
         conversationId: foChat.id,
@@ -523,7 +530,7 @@ async function main() {
 
   for (const name of positionNames) {
     await prisma.workforcePosition.upsert({
-      where: { name },
+      where: { tenantId_name: { tenantId: HGI_TENANT_ID, name } },
       update: {},
       create: { name },
     });
@@ -535,7 +542,7 @@ async function main() {
     { name: 'Vendor C', contactEmail: 'booking@vendorc.az', phone: '+994 12 000 0003' },
   ]) {
     await prisma.vendor.upsert({
-      where: { name: v.name },
+      where: { tenantId_name: { tenantId: HGI_TENANT_ID, name: v.name } },
       update: { contactEmail: v.contactEmail, phone: v.phone, isApproved: true },
       create: { ...v, isApproved: true },
     });
@@ -612,9 +619,9 @@ async function main() {
     });
   }
 
-  const waiter = await prisma.workforcePosition.findUnique({ where: { name: 'Waiter/Waitress' } });
-  const receptionist = await prisma.workforcePosition.findUnique({ where: { name: 'Receptionist' } });
-  const vendorA = await prisma.vendor.findUnique({ where: { name: 'Vendor A' } });
+  const waiter = await prisma.workforcePosition.findFirst({ where: { name: 'Waiter/Waitress' } });
+  const receptionist = await prisma.workforcePosition.findFirst({ where: { name: 'Receptionist' } });
+  const vendorA = await prisma.vendor.findFirst({ where: { name: 'Vendor A' } });
   const fbDept = deptByCode.FB;
   const foDeptForWf = deptByCode.FO;
 
@@ -647,7 +654,7 @@ async function main() {
   }
 
   if (receptionist && vendorA && foDeptForWf) {
-    const existingReq = await prisma.workforceRequest.findUnique({ where: { code: 'CWR-00001' } });
+    const existingReq = await prisma.workforceRequest.findFirst({ where: { code: 'CWR-00001' } });
     if (!existingReq) {
       const workDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
       const steps = [
@@ -692,9 +699,8 @@ async function main() {
 
   console.log('Seed completed successfully!');
   console.log('');
-  console.log('Demo accounts (PIN: 1234):');
-  console.log('  GM:       rasul.mursagulov@hgibaku.com / Test12345');
-  console.log('  Others use password123');
+  console.log('Demo accounts created. Credentials are not printed; use the DEMO_* environment values.');
+  console.log('  GM:       rasul.mursagulov@hgibaku.com');
   console.log('  HOD:      nigar.rustamova@hoterra.az');
   console.log('  Finance:  elnur.mahmudov@hoterra.az');
   console.log('  Employee: employee@hoterra.az');

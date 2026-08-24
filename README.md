@@ -1,163 +1,81 @@
-# HOTERRA Document Management System (HDMS)
+# HOTERRA
 
-Корпоративная платформа для гостиницы HOTERRA: управление документацией, согласованиями и (в дорожной карте) операционными процессами — включая Casual Workforce Management.
+HOTERRA otellər üçün multi-tenant document management, approval workflow və Casual Workforce platformasıdır. Hər otel ayrıca `*.hoterra.net` subdomain-i, istifadəçiləri, sənədləri, vendorları və əməliyyat məlumatları ilə işləyir.
 
-## Возможности MVP (Этап 1)
+## Əsas imkanlar
 
-- Авторизация с JWT и RBAC (6 ролей)
-- 11 департаментов отеля
-- 9 категорий документов
-- Полный жизненный цикл документа (статусы по ТЗ)
-- Dashboard для General Manager
-- Список документов с фильтрацией
-- Создание документа (мастер, шаг 1)
-- Просмотр документа с историей и подписями
-- Настройки системы
-- Журнал аудита (API)
-- Windows desktop приложение (Electron)
-- Multi-tenant hotel workspaces with isolated data and `*.hoterra.net` subdomains
+- JWT autentifikasiya, RBAC və custom rollar
+- Departament, sənəd, versiya, workflow, imza və audit idarəetməsi
+- Casual Workforce request, çoxsətirli servis seçimi və approval route
+- Procurement vendor kataloqu, qiymət müqayisəsi və vendor correction review
+- Finance Director və General Manager təsdiqləri
+- Vendor qiymətləndirməsi, invoice, payroll və geniş reportlar
+- Tenant-a məxsus bildiriş, mesajlaşma və SMTP email outbox
+- `*.hoterra.net` subdomain-ləri ilə hotel tenant-ları
 
-Multi-tenant architecture and deployment details: [`docs/MULTI_TENANCY.md`](docs/MULTI_TENANCY.md).
+## Texnologiyalar
 
-## Модуль: Casual Workforce Management ✅ v1
+| Komponent | Texnologiya |
+|---|---|
+| Frontend | React 19, TypeScript, Tailwind CSS, Vite |
+| Backend | Node.js, Express 5, TypeScript |
+| Database | PostgreSQL 17, Prisma ORM |
+| Auth | JWT (HS256), bcrypt |
+| Deployment | Railway frontend/backend/PostgreSQL |
 
-Полноценный цикл заказа временного персонала — от заявки HOD до оплаты вендора. UI: `/workforce`. Детальное ТЗ: [`docs/CASUAL_WORKFORCE.md`](docs/CASUAL_WORKFORCE.md).
+## Lokal quraşdırma
 
-| Блок | Что входит |
-|------|------------|
-| Заявка | Отель, департамент, дата, смена, позиция, кол-во, комментарий |
-| Позиции | Room Attendant, Waiter, Cook, Security и др. + свои |
-| Вендоры | Утверждённый список или broadcast «первый подтвердивший» |
-| Согласование | Настраиваемые маршруты по департаментам (HK / F&B / Engineering…) |
-| Статусы | Pending → Approved / Rejected → Sent to Vendor → Vendor Accepted → Completed |
-| Закрытие услуги | Факт (люди, часы, стоимость) + подтверждение HOD и Finance |
-| Отчёты | По месяцам: департаменты, вендоры, отели, должности, стоимость, человеко-часы, Budget vs Actual |
-| Контроль | Лимиты бюджета, запрет срочных заказов (&lt; X часов), push-уведомления, audit trail, шаблоны заявок, сверка с Payroll |
-
-Переиспользует уже существующие в HDMS: департаменты, RBAC, workflow designer, уведомления, журнал аудита, отчёты.
-
-## Технологии
-
-| Компонент | Технология |
-|-----------|------------|
-| Desktop | Electron 36 |
-| Frontend | React 19 + TypeScript + Tailwind CSS |
-| Backend | Node.js + Express |
-| Database | SQLite (Prisma ORM, готов к PostgreSQL) |
-| Auth | JWT + bcrypt |
-
-## Быстрый старт
+Tələblər: Node.js 20–24, Docker Desktop.
 
 ```bash
-# Установка зависимостей
 npm install
-
-# Инициализация базы данных
-npx prisma migrate dev --name init
+docker compose up -d
+npm run db:migrate:deploy
 npm run db:seed
-
-# Запуск в режиме разработки
 npm run dev
 ```
 
-## PostgreSQL в Docker
+Frontend: `http://localhost:5173`
 
-База данных работает в контейнере `hoterra-postgres`, а данные сохраняются в
-Docker volume `hoterra_hoterra_postgres_data`.
+Backend readiness: `http://127.0.0.1:3211/api/ready`
 
-```bash
-# Запустить PostgreSQL
-npm run db:up
+Demo seed şifrələri repoda saxlanılmır və console-a çıxarılmır. Lokal demo üçün `DEMO_USER_PASSWORD`, `DEMO_GM_PASSWORD` və `DEMO_SIGNATURE_PIN` environment dəyişənlərindən istifadə edin. Production-da demo seed default olaraq bloklanır.
 
-# Синхронизировать схему Prisma
-npm run db:sync
+## Database və tenant təhlükəsizliyi
 
-# Запустить приложение
-npm run dev
+Sistem ortaq PostgreSQL cədvəllərində `tenantId` istifadə edir və tenant izolyasiyasını bir neçə qatla qoruyur:
 
-# Остановить PostgreSQL (данные сохраняются)
-npm run db:down
-```
+- tenant-aware Prisma client;
+- məhdud, superuser olmayan runtime database rolu;
+- PostgreSQL `FORCE ROW LEVEL SECURITY`;
+- `tenantId NOT NULL` və `Tenant` foreign key-ləri;
+- cross-tenant əlaqə trigger-ləri;
+- tenant-scope unique indeksləri.
 
-Подключение для локальной разработки:
+Ətraflı sxemlər: [Database Architecture](docs/DATABASE_ARCHITECTURE.md).
 
-```text
-Host: 127.0.0.1
-Port: 5432
-Database: hoterra
-User: hoterra
-Password: hoterra_dev_password
-```
+Tenant davranışı: [Multi-tenancy](docs/MULTI_TENANCY.md).
 
-Исходная SQLite база `prisma/dev.db` сохранена как резервная копия. Повторный
-импорт из неё (перезаписывает данные PostgreSQL):
+Production checklist: [Production Readiness](docs/PRODUCTION_READINESS.md).
+
+## Yoxlamalar
 
 ```bash
-npm run db:migrate:sqlite
+npm run typecheck
+npm test
+npm run build:app
+npm audit --omit=dev --audit-level=high
+npm run test:tenant-isolation
 ```
 
-## Демо-аккаунты
+GitHub Actions bu yoxlamaları PostgreSQL 17 ilə hər push və pull request üçün icra edir.
 
-| Роль | Email | Пароль |
-|------|-------|--------|
-| General Manager | rasul.mursagulov@hgibaku.com | Test12345 |
-| HOD | nigar.rustamova@hoterra.az | password123 |
-| Finance Director | elnur.mahmudov@hoterra.az | password123 |
-| Employee | employee@hoterra.az | password123 |
-| Admin | admin@hoterra.az | password123 |
+## Production deploy
 
-PIN для подписи: `1234`
+Backend deploy-dan əvvəl Railway `preDeployCommand` versionlanmış migration-ları tətbiq edir. Production startup heç vaxt `prisma db push` və ya `--accept-data-loss` işə salmır.
 
-## Сборка для Windows
+Əsas environment dəyişənləri `.env.example` və [Production Readiness](docs/PRODUCTION_READINESS.md) sənədində göstərilib. Secret-ləri git-ə commit etməyin.
 
-### Локально (на Windows)
+## Lisenziya
 
-```bash
-npm run build:win
-```
-
-Установщик `.exe` появится в папке `release/`.
-
-### Через GitHub (рекомендуется)
-
-**Прямая ссылка на скачивание:**
-
-https://github.com/hn078/hoterra/releases/latest
-
-Скачайте файл `HOTERRA Document Management System Setup 1.0.2.exe` и запустите.
-
-Альтернатива через Actions (нужен вход в GitHub):
-
-https://github.com/hn078/hoterra/actions
-
-## Устранение неполадок (Windows)
-
-Если приложение не открывается, проверьте лог:
-
-```
-%APPDATA%\hoterra-hdms\hoterra.log
-```
-
-или
-
-```
-C:\Users\<ваш_пользователь>\AppData\Roaming\hoterra-hdms\hoterra.log
-```
-
-После v1.0.1 при ошибке также показывается окно с текстом проблемы.
-
-## Дорожная карта
-
-- **Этап 1** ✅ — Авторизация, роли, департаменты, документы
-- **Этап 2** — Шаблоны, маршруты, электронные подписи
-- **Этап 3** — История, версии, поиск, архив
-- **Этап 4** — Dashboard analytics, уведомления
-- **Этап 5** — Интеграции (Opera PMS, M365, AD)
-- **Этап 6** ✅ — Casual Workforce Management (заявки, вендоры, портал, recurring, payroll, отчёты CSV)
-
-## Брендинг
-
-- Primary Navy: `#0D1B2A`
-- Accent Gold: `#D4A017`
-- Steel Blue: `#294660`
-- Font: Montserrat
+Proprietary / `UNLICENSED`.

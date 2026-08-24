@@ -1,0 +1,55 @@
+name: Production checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hoterra_test
+          POSTGRES_USER: hoterra
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hoterra -d hoterra_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://hoterra:test-only-password@127.0.0.1:5432/hoterra_test?schema=public
+      DEFAULT_TENANT_SLUG: hgi
+      TENANT_BASE_DOMAIN: hoterra.net
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run production:check
+      - run: npm run db:migrate:deploy
+      - run: node dist-server/migrateTenants.js
+      - name: Provision restricted runtime database role
+        env:
+          DATABASE_ADMIN_URL: postgresql://hoterra:test-only-password@127.0.0.1:5432/hoterra_test?schema=public
+          APP_DATABASE_USER: hoterra_app
+          APP_DATABASE_PASSWORD: ci-only-runtime-password-123456789
+        run: npm run db:provision-app-role
+      - name: Verify database-enforced tenant isolation
+        env:
+          DATABASE_URL: postgresql://hoterra_app:ci-only-runtime-password-123456789@127.0.0.1:5432/hoterra_test?schema=public
+          DATABASE_ADMIN_URL: postgresql://hoterra:test-only-password@127.0.0.1:5432/hoterra_test?schema=public
+        run: npm run test:tenant-isolation

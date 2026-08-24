@@ -6,9 +6,9 @@ import {
   pagesForPlacement,
   parseSignaturePlacements,
   signatureForPlacement,
-  uploadUrl,
 } from '@/lib/signatures';
 import { cn } from '@/lib/utils';
+import { useProtectedAssetUrl } from '@/hooks/useProtectedAssetUrl';
 
 type PreviewDoc = Pick<
   Document,
@@ -94,7 +94,7 @@ function SignatureOverlay({
   highlighted: boolean;
   onRemove?: () => void;
 }) {
-  const imageSrc = signature?.imagePath ? uploadUrl(signature.imagePath) : null;
+  const imageSrc = useProtectedAssetUrl(signature?.imagePath ? `/files/signatures/${signature.id}` : null);
 
   return (
     <div
@@ -171,7 +171,7 @@ export function DocumentPreviewCanvas({
       id: createPlacementId(role),
       role,
       label: ROLE_LABELS[role],
-      page: 'all',
+      page: pageNumber,
       x: Math.max(2, Math.min(74, x - 12)),
       y: Math.max(2, Math.min(88, y - 4)),
       width: 24,

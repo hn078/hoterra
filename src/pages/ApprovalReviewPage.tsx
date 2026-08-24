@@ -42,14 +42,6 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const ARCHIVE_ROLES = ['HOD', 'GENERAL_MANAGER', 'SYSTEM_ADMINISTRATOR'] as const;
 
-function downloadAttachment(filePath: string) {
-  const base =
-    typeof window !== 'undefined' && window.__HOTERRA_API__
-      ? window.__HOTERRA_API__.replace('/api', '')
-      : 'http://127.0.0.1:3211';
-  window.open(`${base}${filePath}`, '_blank');
-}
-
 const PRIORITY_STYLE: Record<DocumentPriority, string> = {
   HIGH: 'text-red-600',
   MEDIUM: 'text-yellow-700',
@@ -304,8 +296,8 @@ export function ApprovalReviewPage() {
 
   const handleDownloadFile = () => {
     closeMenu();
-    if (doc?.filePath?.startsWith('/uploads')) {
-      downloadAttachment(doc.filePath);
+    if (doc?.filePath?.startsWith('/uploads') && id) {
+      void api.downloadDocumentFile(id, doc.fileName || `${doc.code}.bin`);
     } else {
       window.print();
     }

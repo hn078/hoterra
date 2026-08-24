@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { isProduction } from '../config';
 
 /**
  * Resolves the writable uploads directory.
@@ -12,9 +13,15 @@ import fs from 'fs';
  */
 export function getUploadsDir(): string {
   const fromEnv = process.env.HOTERRA_UPLOADS_DIR;
-  const dir = fromEnv && fromEnv.trim().length > 0
+  const volumeMount = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  if (isProduction && !fromEnv?.trim() && !volumeMount?.trim()) {
+    throw new Error('Persistent upload storage is required: set HOTERRA_UPLOADS_DIR or mount a Railway volume');
+  }
+  const dir = fromEnv?.trim()
     ? fromEnv
-    : path.join(process.cwd(), 'uploads');
+    : volumeMount?.trim()
+      ? path.join(volumeMount, 'uploads')
+      : path.join(process.cwd(), 'uploads');
 
   ensureDir(dir);
   return dir;

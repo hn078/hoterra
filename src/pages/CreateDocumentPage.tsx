@@ -70,14 +70,15 @@ export function CreateDocumentPage() {
       setTemplates(tmpls);
       setUsers(usrs);
       setWorkflows(activeWorkflows);
-      const fo = depts.find((d) => d.code === 'FO');
-      const nigar = usrs.find((u) => u.email === 'nigar.rustamova@hoterra.az');
-      const generalManager = usrs.find((u) => u.email === 'rasul.mursagulov@hgibaku.com');
+      const defaultDepartment = depts.find((d) => d.code === 'FO') || depts[0];
+      const departmentOwner = usrs.find((u) => u.department?.id === defaultDepartment?.id && u.role === 'HOD')
+        || usrs.find((u) => u.department?.id === defaultDepartment?.id);
+      const generalManager = usrs.find((u) => u.role === 'GENERAL_MANAGER');
       const defaultWf = activeWorkflows.find((w) => w.isDefault) || activeWorkflows[0];
       setForm((f) => ({
         ...f,
-        departmentId: fo?.id || depts[0]?.id || '',
-        ownerId: nigar?.id || '',
+        departmentId: defaultDepartment?.id || '',
+        ownerId: departmentOwner?.id || '',
         authorId: generalManager?.id || '',
         workflowId: defaultWf?.id || '',
       }));

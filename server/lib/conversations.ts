@@ -43,7 +43,7 @@ export async function findOrCreateDirectConversation(
   userIdB: string
 ): Promise<Conversation> {
   const directKey = directKeyFor(userIdA, userIdB);
-  const existing = await prisma.conversation.findUnique({ where: { directKey } });
+  const existing = await prisma.conversation.findFirst({ where: { directKey } });
   if (existing) return existing;
 
   return prisma.conversation.create({

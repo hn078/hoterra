@@ -3,8 +3,11 @@ import { prisma } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../lib/asyncHandler';
 import { buildAuditLogWhere, getAuditLogSummary } from '../lib/audit';
+import { requireRoles } from '../middleware/auth';
+import { Role } from '@prisma/client';
 
 const router = Router();
+const auditReaders = requireRoles(Role.SYSTEM_ADMINISTRATOR, Role.GENERAL_MANAGER, Role.FINANCE_DIRECTOR);
 
 function parseQuery(req: Request) {
   const {
@@ -45,6 +48,7 @@ function parseQuery(req: Request) {
 router.get(
   '/',
   authMiddleware,
+  auditReaders,
   asyncHandler(async (req: Request, res: Response) => {
     const { filters, pageNum, limitNum } = parseQuery(req);
     const where = await buildAuditLogWhere(filters);
@@ -71,6 +75,7 @@ router.get(
 router.get(
   '/export',
   authMiddleware,
+  auditReaders,
   asyncHandler(async (req: Request, res: Response) => {
     const { filters } = parseQuery(req);
     const where = await buildAuditLogWhere(filters);

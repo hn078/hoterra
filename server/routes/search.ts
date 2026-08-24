@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { canViewAllDocuments } from '../middleware/auth';
 import { formatWorkflow } from '../lib/workflows';
 
 const router = Router();
@@ -17,6 +18,9 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
     return res.json({ documents: [], users: [], departments: [], templates: [], workflows: [], total: 0 });
   }
 
+  const effectiveDepartmentId = canViewAllDocuments(req.user!.role)
+    ? departmentId
+    : req.user!.departmentId || '__unassigned_user__';
   const docWhere = {
     AND: [
       {
@@ -26,7 +30,7 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
           { description: { contains: q } },
         ],
       },
-      ...(departmentId ? [{ departmentId }] : []),
+      ...(effectiveDepartmentId ? [{ departmentId: effectiveDepartmentId }] : []),
       ...(category ? [{ category: category as never }] : []),
       ...(status ? [{ status: status as never }] : []),
       ...(fileType ? [{ fileType: { contains: fileType } }] : []),

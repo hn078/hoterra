@@ -90,6 +90,11 @@ export function WorkforcePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
+  const isProcurementUser = user?.department?.code === 'PR';
+  const visibleTabs = useMemo(() => TABS.filter((item) => {
+    if (isProcurementUser || ['SYSTEM_ADMINISTRATOR', 'GENERAL_MANAGER', 'FINANCE_DIRECTOR'].includes(user?.role || '')) return true;
+    return item.id === 'requests' || item.id === 'templates' || item.id === 'reports';
+  }), [isProcurementUser, user?.role]);
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'requests');
   const [requests, setRequests] = useState<WorkforceRequest[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -159,8 +164,9 @@ export function WorkforcePage() {
 
   useEffect(() => {
     const requestedTab = new URLSearchParams(location.search).get('tab');
-    if (requestedTab && TABS.some((item) => item.id === requestedTab)) setTab(requestedTab);
-  }, [location.search]);
+    if (requestedTab && visibleTabs.some((item) => item.id === requestedTab)) setTab(requestedTab);
+    else if (!visibleTabs.some((item) => item.id === tab)) setTab('requests');
+  }, [location.search, tab, visibleTabs]);
 
   useEffect(() => {
     if (tab !== 'catalog') return;
@@ -409,7 +415,7 @@ export function WorkforcePage() {
       </div>
 
       <div className="border-b border-gray-200 bg-white px-6">
-        <PageTabs tabs={TABS} active={tab} onChange={setTab} />
+        <PageTabs tabs={visibleTabs} active={tab} onChange={setTab} />
       </div>
 
       <div className="page-content">

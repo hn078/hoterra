@@ -1,6 +1,8 @@
+import './loadEnv';
 import express from 'express';
 import cors from 'cors';
-import { getUploadsDir } from './lib/paths';
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import authRoutes from './routes/auth';
 import departmentRoutes from './routes/departments';
 import documentRoutes from './routes/documents';
@@ -17,26 +19,70 @@ import favoritesRoutes from './routes/favorites';
 import conversationRoutes from './routes/conversations';
 import workforceRoutes from './routes/workforce';
 import vendorPortalRoutes from './routes/vendorPortal';
+import fileRoutes from './routes/files';
 import { startRecurringScheduler } from './lib/workforceRecurring';
 import { tenantMiddleware } from './middleware/tenant';
+import { isAllowedOrigin, isProduction, runtimeConfig, validateRuntimeConfig } from './config';
+import { createRateLimiter, securityHeaders } from './middleware/security';
+import { disconnectPrisma, systemPrisma } from './db';
+import { assertDatabaseSecurity } from './databaseSecurity';
+import { startEmailOutboxWorker, stopEmailOutboxWorker } from './lib/mail';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = runtimeConfig.frontendUrl;
 
 export function createApp() {
   const app = express();
+  app.disable('x-powered-by');
+  if (isProduction) app.set('trust proxy', 1);
 
-  const uploadsDir = getUploadsDir();
-
-  app.use(cors({ origin: true }));
-  app.use(express.json({ limit: '15mb' }));
-  app.use('/uploads', express.static(uploadsDir));
+  app.use(securityHeaders);
+  app.use((req, res, next) => {
+    const requestId = String(req.headers['x-request-id'] || randomUUID()).slice(0, 100);
+    const startedAt = Date.now();
+    res.setHeader('X-Request-Id', requestId);
+    res.on('finish', () => {
+      console.log(JSON.stringify({
+        level: 'info',
+        event: 'http_request',
+        requestId,
+        method: req.method,
+        path: req.originalUrl.split('?')[0],
+        status: res.statusCode,
+        durationMs: Date.now() - startedAt,
+      }));
+    });
+    next();
+  });
+  app.use(cors({
+    origin(origin, callback) {
+      if (!origin || isAllowedOrigin(origin)) return callback(null, true);
+      return callback(new Error('Origin is not allowed by CORS'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Tenant-Slug'],
+    maxAge: 86_400,
+  }));
+  app.use('/api', createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: runtimeConfig.globalRateLimitMax,
+  }));
+  app.use(express.json({ limit: runtimeConfig.requestBodyLimit, strict: true }));
 
   app.get('/', (_req, res) => {
     res.redirect(FRONTEND_URL);
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', version: '1.0.0', frontend: FRONTEND_URL });
+    res.json({ status: 'ok', version: process.env.npm_package_version || '1.0.7' });
+  });
+
+  app.get('/api/ready', async (_req, res) => {
+    try {
+      await systemPrisma.$queryRaw`SELECT 1`;
+      res.json({ status: 'ready' });
+    } catch {
+      res.status(503).json({ status: 'unavailable' });
+    }
   });
 
   app.use('/api', tenantMiddleware);
@@ -66,18 +112,37 @@ export function createApp() {
   app.use('/api/conversations', conversationRoutes);
   app.use('/api/workforce', workforceRoutes);
   app.use('/api/vendor', vendorPortalRoutes);
+  app.use('/api/files', fileRoutes);
+
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found' });
+  });
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('[api]', err);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal server error' });
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return res.status(409).json({ error: 'A record with the same unique value already exists' });
+      }
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        return res.status(404).json({ error: 'Record not found' });
+      }
+      if (err instanceof SyntaxError && 'body' in err) {
+        return res.status(400).json({ error: 'Invalid JSON body' });
+      }
+      if (err instanceof Error && err.message === 'Origin is not allowed by CORS') {
+        return res.status(403).json({ error: 'Origin is not allowed' });
+      }
+      return res.status(500).json({ error: 'Internal server error' });
     }
   });
 
   return app;
 }
 
-export function startServer(port = Number(process.env.PORT) || 3211) {
+export async function startServer(port = Number(process.env.PORT) || 3211) {
+  validateRuntimeConfig();
+  await assertDatabaseSecurity();
   const app = createApp();
   const host = process.env.HOST || '0.0.0.0';
 
@@ -85,8 +150,21 @@ export function startServer(port = Number(process.env.PORT) || 3211) {
     const server = app.listen(port, host, () => {
       console.log(`HOTERRA HDMS API listening on ${host}:${port}`);
       startRecurringScheduler();
+      startEmailOutboxWorker();
       resolve({ port });
     });
+
+    const shutdown = (signal: string) => {
+      console.log(`[server] ${signal} received; shutting down`);
+      server.close(async () => {
+        stopEmailOutboxWorker();
+        await disconnectPrisma().catch(() => undefined);
+        process.exit(0);
+      });
+      setTimeout(() => process.exit(1), 10_000).unref();
+    };
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
 
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE' && port < 3010) {
@@ -102,5 +180,8 @@ if (require.main === module) {
   process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason);
   });
-  startServer();
+  startServer().catch((error) => {
+    console.error('[startup]', error);
+    process.exit(1);
+  });
 }

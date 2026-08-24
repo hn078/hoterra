@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Role } from '@prisma/client';
 import { prisma } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, canViewAllDocuments } from '../middleware/auth';
 import { routeParam } from '../utils';
 
 const router = Router();
@@ -82,8 +82,12 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
 });
 
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
+  const id = routeParam(req.params.id);
+  if (!canViewAllDocuments(req.user!.role) && req.user!.departmentId !== id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const department = await prisma.department.findUnique({
-    where: { id: routeParam(req.params.id) },
+    where: { id },
     include: {
       users: {
         select: {

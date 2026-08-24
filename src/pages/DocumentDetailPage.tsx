@@ -34,13 +34,6 @@ function formatFileSize(bytes?: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function downloadAttachment(filePath: string) {
-  const base = typeof window !== 'undefined' && window.__HOTERRA_API__
-    ? window.__HOTERRA_API__.replace('/api', '')
-    : 'http://127.0.0.1:3211';
-  window.open(`${base}${filePath}`, '_blank');
-}
-
 export function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -264,7 +257,7 @@ export function DocumentDetailPage() {
             <ActionBtn
               icon={Download}
               label="Download"
-              onClick={() => doc.filePath?.startsWith('/uploads') && downloadAttachment(doc.filePath)}
+              onClick={() => doc.filePath?.startsWith('/uploads') && void api.downloadDocumentFile(doc.id, doc.fileName || `${doc.code}.bin`)}
             />
             <ActionBtn icon={Share2} label="Export" onClick={handlePrint} />
             <ActionBtn icon={Printer} label="Print" onClick={handlePrint} />
@@ -340,7 +333,7 @@ export function DocumentDetailPage() {
                               <p className="text-[10px] text-gray-400">{formatFileSize(a.fileSize)}</p>
                             </div>
                             <button
-                              onClick={() => a.filePath.startsWith('/uploads') && downloadAttachment(a.filePath)}
+                              onClick={() => a.filePath.startsWith('/uploads') && void api.downloadDocumentAttachment(doc.id, a.id, a.fileName)}
                               className="rounded p-1 text-gray-400 hover:bg-white hover:text-hoterra-steel"
                             >
                               <Download className="h-3.5 w-3.5" />

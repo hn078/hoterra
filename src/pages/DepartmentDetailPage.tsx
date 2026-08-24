@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import type { Department, Document, Template, User, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
 import { countWorkflowSteps, WORKFLOW_STATUS_LABELS } from '@/lib/workflows';
+import { formatDate } from '@/lib/utils';
 
 type DepartmentDetail = Department & {
   users: User[];

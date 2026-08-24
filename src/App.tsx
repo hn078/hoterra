@@ -1,33 +1,8 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Building2, ExternalLink, Loader2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
-import { DashboardPage } from '@/pages/DashboardPage';
-import { DocumentsPage } from '@/pages/DocumentsPage';
-import { CreateDocumentPage } from '@/pages/CreateDocumentPage';
-import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
-import { SettingsPage } from '@/pages/SettingsPage';
-import { MyApprovalsPage } from '@/pages/MyApprovalsPage';
-import { ApprovalReviewPage } from '@/pages/ApprovalReviewPage';
-import { ReportsPage } from '@/pages/ReportsPage';
-import { SearchPage } from '@/pages/SearchPage';
-import { TemplatesPage } from '@/pages/TemplatesPage';
-import { TemplateEditorPage } from '@/pages/TemplateEditorPage';
-import { DepartmentsPage } from '@/pages/DepartmentsPage';
-import { DepartmentDetailPage } from '@/pages/DepartmentDetailPage';
-import { WorkflowsPage } from '@/pages/WorkflowsPage';
-import { WorkflowDesignerPage } from '@/pages/WorkflowDesignerPage';
-import { UsersPage } from '@/pages/UsersPage';
-import { UserProfilePage } from '@/pages/UserProfilePage';
-import { RolesPermissionsPage } from '@/pages/RolesPermissionsPage';
-import { ArchivePage } from '@/pages/ArchivePage';
-import { AuditLogPage } from '@/pages/AuditLogPage';
-import { NotificationsPage } from '@/pages/NotificationsPage';
-import { MessagesPage } from '@/pages/MessagesPage';
-import { WorkforcePage } from '@/pages/WorkforcePage';
-import { WorkforceRequestPage } from '@/pages/WorkforceRequestPage';
-import { VendorPortalPage } from '@/pages/VendorPortalPage';
 import { LandingPage } from '@/pages/LandingPage';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/lib/api';
@@ -37,6 +12,40 @@ const isFileProtocol =
   (window.location.protocol === 'file:' || !!window.hoterra);
 
 const Router = isFileProtocol ? HashRouter : BrowserRouter;
+
+const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const DocumentsPage = lazy(() => import('@/pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })));
+const CreateDocumentPage = lazy(() => import('@/pages/CreateDocumentPage').then((m) => ({ default: m.CreateDocumentPage })));
+const DocumentDetailPage = lazy(() => import('@/pages/DocumentDetailPage').then((m) => ({ default: m.DocumentDetailPage })));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const MyApprovalsPage = lazy(() => import('@/pages/MyApprovalsPage').then((m) => ({ default: m.MyApprovalsPage })));
+const ApprovalReviewPage = lazy(() => import('@/pages/ApprovalReviewPage').then((m) => ({ default: m.ApprovalReviewPage })));
+const ReportsPage = lazy(() => import('@/pages/ReportsPage').then((m) => ({ default: m.ReportsPage })));
+const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })));
+const TemplatesPage = lazy(() => import('@/pages/TemplatesPage').then((m) => ({ default: m.TemplatesPage })));
+const TemplateEditorPage = lazy(() => import('@/pages/TemplateEditorPage').then((m) => ({ default: m.TemplateEditorPage })));
+const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage').then((m) => ({ default: m.DepartmentsPage })));
+const DepartmentDetailPage = lazy(() => import('@/pages/DepartmentDetailPage').then((m) => ({ default: m.DepartmentDetailPage })));
+const WorkflowsPage = lazy(() => import('@/pages/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })));
+const WorkflowDesignerPage = lazy(() => import('@/pages/WorkflowDesignerPage').then((m) => ({ default: m.WorkflowDesignerPage })));
+const UsersPage = lazy(() => import('@/pages/UsersPage').then((m) => ({ default: m.UsersPage })));
+const UserProfilePage = lazy(() => import('@/pages/UserProfilePage').then((m) => ({ default: m.UserProfilePage })));
+const RolesPermissionsPage = lazy(() => import('@/pages/RolesPermissionsPage').then((m) => ({ default: m.RolesPermissionsPage })));
+const ArchivePage = lazy(() => import('@/pages/ArchivePage').then((m) => ({ default: m.ArchivePage })));
+const AuditLogPage = lazy(() => import('@/pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })));
+const NotificationsPage = lazy(() => import('@/pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })));
+const MessagesPage = lazy(() => import('@/pages/MessagesPage').then((m) => ({ default: m.MessagesPage })));
+const WorkforcePage = lazy(() => import('@/pages/WorkforcePage').then((m) => ({ default: m.WorkforcePage })));
+const WorkforceRequestPage = lazy(() => import('@/pages/WorkforceRequestPage').then((m) => ({ default: m.WorkforceRequestPage })));
+const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage').then((m) => ({ default: m.VendorPortalPage })));
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-hoterra-navy">
+      <Loader2 className="h-6 w-6 animate-spin text-hoterra-gold" aria-label="Loading page" />
+    </div>
+  );
+}
 
 type TenantState =
   | { status: 'checking' }
@@ -118,7 +127,8 @@ export default function App() {
   return (
     <TenantGuard>
       <Router>
-        <Routes>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
         <Route
           path="/"
           element={
@@ -160,7 +170,8 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+          </Routes>
+        </Suspense>
       </Router>
     </TenantGuard>
   );

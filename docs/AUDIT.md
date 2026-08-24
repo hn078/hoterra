@@ -62,7 +62,7 @@ Reference map: `docs/page-designs/README.md`
 ## Demo access
 
 - URL: `http://localhost:5173`
-- GM: `rasul.mursagulov@hgibaku.com` / `Test12345`
+- Demo credentials are supplied through local `DEMO_*` environment variables and are not documented in the repository.
 
 ```bash
 npm run dev:server   # API :3211

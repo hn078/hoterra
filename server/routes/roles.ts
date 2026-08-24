@@ -64,6 +64,9 @@ router.post('/', authMiddleware, adminOnly, async (req: Request, res: Response) 
   if (!name?.trim() || !Object.values(Role).includes(baseRole)) {
     return res.status(400).json({ error: 'Valid name and base role are required' });
   }
+  if (baseRole === Role.SYSTEM_ADMINISTRATOR && req.user!.role !== Role.SYSTEM_ADMINISTRATOR) {
+    return res.status(403).json({ error: 'Only a System Administrator can create an administrator role' });
+  }
   const source = ROLE_PERMISSIONS[baseRole as Role].permissions;
   const role = await prisma.customRole.create({
     data: { name: name.trim(), description: String(description).trim(), baseRole, permissions: source },

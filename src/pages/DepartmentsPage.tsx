@@ -12,7 +12,7 @@ import {
   MapPin,
   ChevronRight,
 } from 'lucide-react';
-import { Header, DepartmentBadge } from '@/components/layout/Sidebar';
+import { Header } from '@/components/layout/Sidebar';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { UserAvatar } from '@/components/ui/UserAvatar';
