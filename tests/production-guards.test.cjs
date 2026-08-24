@@ -50,6 +50,7 @@ test('login branding exposes only selected tenant-scoped image assets', () => {
   const publicTenant = read('server/routes/publicTenant.ts');
   assert.match(publicTenant, /expectedPrefix = `\/uploads\/\$\{tenant\.id\}\/branding\//);
   assert.match(publicTenant, /isActive: true/);
+  assert.match(publicTenant, /Cross-Origin-Resource-Policy', 'cross-origin'/);
   assert.doesNotMatch(publicTenant, /authMiddleware/);
 
   const settings = read('server/routes/settings.ts');

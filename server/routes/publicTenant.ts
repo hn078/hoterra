@@ -70,6 +70,9 @@ router.get('/tenants/:slug/branding/:asset', asyncHandler(async (req, res) => {
 
   res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Branding images are intentionally public and are embedded by tenant
+  // subdomains while the API is hosted on a separate Railway domain.
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.type(path.extname(absolutePath));
   res.setHeader('Content-Disposition', 'inline');
   return res.sendFile(absolutePath);
