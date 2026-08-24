@@ -346,7 +346,36 @@ export function WorkforceRequestPage() {
               </dl>
               {!!request.items?.length && (
                 <div className="mt-5 overflow-x-auto rounded-lg border border-gray-100">
-                  <table className="w-full text-sm">
+                  <div className="divide-y divide-gray-100 md:hidden">
+                    {request.items.map((item) => (
+                      <article key={item.id} className="p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h4 className="font-semibold text-hoterra-navy">{item.position.name}</h4>
+                            <p className="mt-1 text-xs text-gray-500">{item.rateUnit === 'HOURLY' ? 'Hourly' : item.rateUnit === 'DAILY_9' ? 'Daily 9h' : 'Daily 12h'}{item.hours != null ? ` · ${item.hours} hours` : ''}</p>
+                          </div>
+                          <span className="rounded-lg bg-gray-100 px-2.5 py-1 text-sm font-semibold text-gray-700">×{item.quantity}</span>
+                        </div>
+                        <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                          <div><dt className="text-gray-400">Vendor</dt><dd className="mt-0.5 font-medium text-gray-700">{item.vendor?.name || (isDepartmentHod ? 'Visible after confirmation' : 'Selected after GM')}</dd></div>
+                          <div><dt className="text-gray-400">Cost</dt><dd className="mt-0.5 font-medium text-gray-700">{item.estimatedCost != null ? `${item.estimatedCost.toFixed(2)} ${item.rateCurrency || 'AZN'}` : '—'}</dd></div>
+                        </dl>
+                        {stagedCorrectionByItemId.get(item.id) && (
+                          <div className="mt-3 rounded-lg bg-amber-50 p-2 text-xs font-medium text-amber-800">Proposed: {stagedCorrectionByItemId.get(item.id)!.proposedVendorName} · {stagedCorrectionByItemId.get(item.id)!.proposedCost.toFixed(2)} {stagedCorrectionByItemId.get(item.id)!.proposedCurrency}</div>
+                        )}
+                        {canStageVendorCorrections && (
+                          <button
+                            type="button"
+                            onClick={() => { setCorrectingItemId(item.id); setVendorCorrection({ vendorRateId: '', comment: '' }); }}
+                            className="btn-secondary mt-3 w-full"
+                          >
+                            <Pencil className="h-4 w-4" /> Change vendor
+                          </button>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                  <table className="hidden w-full text-sm md:table">
                     <thead className="bg-gray-50 text-left text-xs text-gray-500">
                       <tr><th className="px-3 py-2">Service</th><th className="px-3 py-2">Quantity</th><th className="px-3 py-2">Unit</th><th className="px-3 py-2">Hours</th><th className="px-3 py-2">Selected vendor</th><th className="px-3 py-2">Cost</th>{canStageVendorCorrections && <th className="px-3 py-2 text-right">Action</th>}</tr>
                     </thead>

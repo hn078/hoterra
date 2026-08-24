@@ -186,8 +186,8 @@ export function TemplateEditorPage() {
         )}
       </div>
 
-      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
-        <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page lg:flex-row lg:overflow-hidden">
+        <div className="flex min-h-[520px] flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
             <div className="mx-auto max-w-3xl">
               <div className="card overflow-hidden">
@@ -245,7 +245,7 @@ export function TemplateEditorPage() {
           </div>
         </div>
 
-        <aside className="card w-72 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-4 shadow-none">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-b-0 p-4 shadow-none lg:w-72 lg:border-l lg:border-t-0">
           {designSignatures ? (
             <>
               <h3 className="mb-1 text-sm font-semibold text-hoterra-navy">Signature Placement</h3>

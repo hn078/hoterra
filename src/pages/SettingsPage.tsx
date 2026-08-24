@@ -246,7 +246,7 @@ export function SettingsPage() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <header className="border-b border-gray-200 bg-white">
-        <div className="flex items-center justify-between gap-4 px-6 py-4">
+        <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
           <div>
             <h1 className="text-xl font-bold text-hoterra-navy">Settings (Admin)</h1>
             <p className="mt-0.5 text-sm text-gray-500">Manage system settings and preferences</p>
@@ -315,15 +315,15 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden bg-white">
-        <aside className="w-56 shrink-0 overflow-y-auto border-r border-gray-200 p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase text-gray-400">Settings Categories</h3>
-          <nav className="space-y-0.5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white md:flex-row md:overflow-hidden">
+        <aside className="shrink-0 overflow-x-auto border-b border-gray-200 p-2 md:w-56 md:overflow-y-auto md:border-b-0 md:border-r md:p-4">
+          <h3 className="mb-3 hidden text-xs font-semibold uppercase text-gray-400 md:block">Settings Categories</h3>
+          <nav className="flex gap-2 md:block md:space-y-0.5">
             {visibleCategories.map(({ id, icon: Icon, label }) => (
               <button
                 key={id}
                 onClick={() => setActiveCategory(id)}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors md:w-full md:gap-3 ${
                   activeCategory === id ? 'settings-nav-active' : 'text-gray-600 hover:bg-gray-50'
                 }`}
               >
@@ -337,10 +337,10 @@ export function SettingsPage() {
           </nav>
         </aside>
 
-        <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
-          <div className="mb-6 flex items-center justify-between">
+        <div className="min-h-0 flex-none bg-hoterra-page p-3 md:flex-1 md:overflow-y-auto md:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between md:mb-6">
             <h2 className="text-lg font-semibold text-hoterra-navy">{categoryTitle}</h2>
-            <button onClick={handleSave} disabled={saving} className="btn-primary disabled:opacity-50">
+            <button onClick={handleSave} disabled={saving} className="btn-primary w-full disabled:opacity-50 sm:w-auto">
               {saving ? 'Saving...' : saved ? 'Saved ✓' : 'Save Changes'}
             </button>
           </div>
@@ -721,7 +721,7 @@ export function SettingsPage() {
           )}
         </div>
 
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-hoterra-page p-5">
+        <aside className="w-full shrink-0 overflow-y-auto border-t border-gray-200 bg-hoterra-page p-3 md:w-80 md:border-l md:border-t-0 md:p-5">
           <SettingsSideCard title="Security Settings" action="Manage" onAction={() => setActiveCategory('security')}>
             {[
               { label: 'Password Policy', value: String(security.passwordPolicy ?? 'Strong') },

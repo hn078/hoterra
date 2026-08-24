@@ -288,7 +288,37 @@ export function DocumentsPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <table className="w-full min-w-[1100px] text-sm">
+        <div className="space-y-3 bg-hoterra-page p-3 md:hidden">
+          {loading ? (
+            <div className="card p-8 text-center text-sm text-gray-500">Loading documents...</div>
+          ) : documents.length === 0 ? (
+            <div className="card p-8 text-center text-sm text-gray-500">No documents found</div>
+          ) : documents.map((doc) => (
+            <article key={doc.id} className="card p-4">
+              <div className="flex items-start gap-3">
+                <input type="checkbox" aria-label={`Select ${doc.title}`} className="mt-1 h-5 w-5 rounded" checked={selected.has(doc.id)} onChange={() => toggleSelect(doc.id)} />
+                <FileTypeIcon category={doc.category} />
+                <div className="min-w-0 flex-1">
+                  <Link to={`/documents/${doc.id}`} className="block font-semibold leading-5 text-hoterra-navy">{doc.title}</Link>
+                  <p className="mt-1 font-mono text-xs text-gray-500">{doc.code} · v{doc.version}</p>
+                </div>
+                <Link to={`/documents/${doc.id}`} aria-label={`Open ${doc.title}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-hoterra-steel">
+                  <Eye className="h-5 w-5" />
+                </Link>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <DepartmentBadge name={doc.department.name} color={doc.department.color} />
+                <CategoryBadge category={doc.category} />
+                <StatusBadge status={doc.status} />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 text-xs">
+                <div><span className="text-gray-400">Updated</span><p className="mt-0.5 font-medium text-gray-700">{formatDate(doc.updatedAt)}</p></div>
+                <div><span className="text-gray-400">Next review</span><p className="mt-0.5 font-medium text-orange-600">{formatDate(doc.nextReviewDate)}</p></div>
+              </div>
+            </article>
+          ))}
+        </div>
+        <table className="hidden w-full min-w-[1100px] text-sm md:table">
           <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-6 py-3">

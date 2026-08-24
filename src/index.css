@@ -5,10 +5,20 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
-    @apply font-sans antialiased text-hoterra-navy;
+    @apply m-0 min-w-0 overflow-x-hidden font-sans antialiased text-hoterra-navy;
+    touch-action: manipulation;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -102,5 +112,145 @@
 
   .settings-nav-active {
     @apply bg-blue-50 text-blue-700 font-medium;
+  }
+}
+
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: 100dvh;
+  }
+
+  .page-content {
+    padding: 0.75rem;
+    overscroll-behavior-y: contain;
+  }
+
+  .page-stats {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    padding-top: 0.75rem;
+  }
+
+  .page-stats .grid {
+    gap: 0.75rem !important;
+  }
+
+  .page-tabs {
+    flex-wrap: nowrap;
+    gap: 1.25rem;
+    overflow-x: auto;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .page-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .page-tabs > button {
+    flex: 0 0 auto;
+    min-height: 2.75rem;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .input,
+  .filter-select {
+    min-height: 2.75rem;
+    width: 100%;
+  }
+
+  .card {
+    border-radius: 0.75rem;
+  }
+
+  main table th,
+  main table td {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+
+  main .card:has(> table) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  main .card > table:not(.md\:table),
+  main .overflow-auto > table,
+  main .overflow-x-auto > table {
+    min-width: 44rem;
+  }
+
+  main [class*="min-w-[220px]"],
+  main [class*="min-w-[280px]"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  main .grid.grid-cols-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  main .grid.grid-cols-4,
+  main .grid.grid-cols-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  main .overflow-x-auto,
+  main .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  main form .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  main .fixed.inset-0.z-50 {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  main .fixed.inset-0.z-50 > div,
+  main .fixed.inset-0.z-50 > form {
+    max-height: 92dvh;
+    max-width: none;
+    overflow-y: auto;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: 1rem;
+  }
+
+  main .fixed.inset-0.z-50 input,
+  main .fixed.inset-0.z-50 select,
+  main .fixed.inset-0.z-50 textarea {
+    font-size: 1rem;
+  }
+
+  main .fixed.inset-0.z-50 [class*="grid-cols-2"],
+  main .fixed.inset-0.z-50 [class*="grid-cols-3"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  main [class*="px-6"][class*="bg-white"] {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  main [class*="p-6"][class*="bg-hoterra-page"] {
+    padding: 0.75rem;
+  }
+
+  main input[type="checkbox"],
+  main input[type="radio"] {
+    min-height: 1.25rem;
+    min-width: 1.25rem;
   }
 }

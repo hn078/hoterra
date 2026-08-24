@@ -1,9 +1,10 @@
 import { Outlet, Navigate } from 'react-router-dom';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { useAuthStore } from '@/store/auth';
+import { MobileBottomNav, Sidebar } from '@/components/layout/Sidebar';
+import { useAuthStore, useUIStore } from '@/store/auth';
 
 export function AppLayout() {
   const { isAuthenticated, isLoading } = useAuthStore();
+  const { mobileSidebarOpen, closeMobileSidebar } = useUIStore();
 
   if (isLoading) {
     return (
@@ -23,11 +24,20 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-hoterra-gray">
+    <div className="flex h-[100dvh] overflow-hidden bg-hoterra-gray">
+      {mobileSidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={closeMobileSidebar}
+          className="fixed inset-0 z-40 bg-hoterra-navy/55 backdrop-blur-sm md:hidden"
+        />
+      )}
       <Sidebar />
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
         <Outlet />
       </main>
+      <MobileBottomNav />
     </div>
   );
 }

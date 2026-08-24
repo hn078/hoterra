@@ -146,8 +146,8 @@ export function SearchPage() {
         }
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        <div className="flex min-h-[480px] flex-1 flex-col overflow-hidden">
           <div className="border-b border-gray-200 bg-white px-6 py-6">
             <div className="relative mx-auto max-w-4xl">
               <Search className="absolute left-4 top-1/2 h-6 w-6 -translate-y-1/2 text-gray-400" />
@@ -227,7 +227,7 @@ export function SearchPage() {
                 No results found for "{query}"
               </div>
             ) : (
-              <div className={viewMode === 'grid' ? 'grid grid-cols-2 gap-4' : 'space-y-3'}>
+              <div className={viewMode === 'grid' ? 'grid grid-cols-1 gap-4 sm:grid-cols-2' : 'space-y-3'}>
                 {(activeTab === 'all' || activeTab === 'documents') &&
                   results.documents.map((doc) => (
                     <ResultCard
@@ -320,7 +320,7 @@ export function SearchPage() {
           </div>
         </div>
 
-        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
+        <aside className="card order-first w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none lg:order-none lg:w-80 lg:border-l lg:border-b-0 lg:p-5">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold text-hoterra-navy">Filter Results</h3>
             <button

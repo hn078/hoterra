@@ -210,8 +210,8 @@ export function CreateDocumentPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
-        <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page lg:flex-row lg:overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           <div className="mx-auto max-w-3xl">
             {step === 0 && (
               <div className="space-y-5">
@@ -584,7 +584,7 @@ export function CreateDocumentPage() {
         </div>
 
         {step === 0 && (
-          <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
+          <aside className="card order-first max-h-80 w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none lg:order-none lg:max-h-none lg:w-80 lg:border-l lg:border-b-0 lg:p-5">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Choose Template</h3>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />

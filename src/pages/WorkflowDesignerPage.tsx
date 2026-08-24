@@ -212,7 +212,7 @@ export function WorkflowDesignerPage() {
         title={workflow?.name ?? 'Workflow Designer'}
         subtitle={workflow?.description ?? 'Design approval route'}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1">
             {workflow && (
               <StatusBadge status={workflow.status} isDefault={workflow.isDefault} />
             )}
@@ -234,8 +234,8 @@ export function WorkflowDesignerPage() {
         />
       </div>
 
-      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
-        <aside className="card w-64 shrink-0 overflow-y-auto rounded-none border-r border-t-0 border-l-0 border-b-0 p-5 shadow-none">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page lg:flex-row lg:overflow-hidden">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none lg:w-64 lg:border-r lg:border-b-0 lg:p-5">
           <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-gray-400">
             Workflow Details
           </h3>
@@ -311,7 +311,7 @@ export function WorkflowDesignerPage() {
           </div>
         </aside>
 
-        <div className="relative flex-1 overflow-auto bg-[radial-gradient(circle,#e5e7eb_1px,transparent_1px)] bg-[size:20px_20px] p-8">
+        <div className="relative min-h-[440px] flex-1 overflow-auto bg-[radial-gradient(circle,#e5e7eb_1px,transparent_1px)] bg-[size:20px_20px] p-4 sm:p-8">
           <div className="mx-auto flex max-w-md flex-col items-center">
             <FlowNode
               title="Start"
@@ -358,7 +358,7 @@ export function WorkflowDesignerPage() {
           </div>
         </div>
 
-        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-b-0 p-4 shadow-none lg:w-80 lg:border-l lg:border-t-0 lg:p-5">
           <div className="mb-4 flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-hoterra-steel" />
             <h3 className="font-semibold text-hoterra-navy">Step Properties</h3>

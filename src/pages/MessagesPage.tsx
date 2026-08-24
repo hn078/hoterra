@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Building2,
+  ChevronLeft,
   Download,
   FileText,
   Hotel,
@@ -36,6 +37,7 @@ export function MessagesPage() {
   const { user } = useAuthStore();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -127,6 +129,7 @@ export function MessagesPage() {
       setShowNewDm(false);
       await loadConversations(true);
       setSelectedId(conv.id);
+      setMobileConversationOpen(true);
     } catch (err) {
       console.error(err);
     }
@@ -256,9 +259,9 @@ export function MessagesPage() {
     <div className="flex h-full flex-col">
       <Header title="Messages" subtitle="Chat with your team across the hotel" />
 
-      <div className="flex flex-1 overflow-hidden p-4 md:p-6">
-        <div className="flex w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          <aside className="flex w-72 shrink-0 flex-col border-r border-gray-200 bg-gray-50/50">
+      <div className="flex min-h-0 flex-1 overflow-hidden p-0 md:p-6">
+        <div className="flex w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm max-md:rounded-none max-md:border-x-0">
+          <aside className={cn('w-full shrink-0 flex-col border-r border-gray-200 bg-gray-50/50 md:flex md:w-72', mobileConversationOpen ? 'hidden' : 'flex')}>
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
               <h2 className="text-sm font-semibold text-hoterra-navy">Conversations</h2>
               <button
@@ -279,23 +282,31 @@ export function MessagesPage() {
               ) : (
                 <>
                   {hotelChats.length > 0 && (
-                    <ConversationGroup title="Hotel" items={hotelChats} selectedId={selectedId} onSelect={setSelectedId} />
+                    <ConversationGroup title="Hotel" items={hotelChats} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileConversationOpen(true); }} />
                   )}
                   {deptChats.length > 0 && (
-                    <ConversationGroup title="My Department" items={deptChats} selectedId={selectedId} onSelect={setSelectedId} />
+                    <ConversationGroup title="My Department" items={deptChats} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileConversationOpen(true); }} />
                   )}
                   {directChats.length > 0 && (
-                    <ConversationGroup title="Direct Messages" items={directChats} selectedId={selectedId} onSelect={setSelectedId} />
+                    <ConversationGroup title="Direct Messages" items={directChats} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileConversationOpen(true); }} />
                   )}
                 </>
               )}
             </div>
           </aside>
 
-          <section className="flex min-w-0 flex-1 flex-col">
+          <section className={cn('min-w-0 flex-1 flex-col', mobileConversationOpen ? 'flex' : 'hidden md:flex')}>
             {selected ? (
               <>
-                <div className="flex items-center gap-3 border-b border-gray-200 px-5 py-4">
+                <div className="flex items-center gap-3 border-b border-gray-200 px-3 py-3 md:px-5 md:py-4">
+                  <button
+                    type="button"
+                    onClick={() => setMobileConversationOpen(false)}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 md:hidden"
+                    aria-label="Back to conversations"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-hoterra-navy/10 text-hoterra-navy">
                     <ConversationIcon type={selected.type} />
                   </div>
@@ -309,7 +320,7 @@ export function MessagesPage() {
                   </div>
                 </div>
 
-                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto bg-hoterra-offwhite/40 px-5 py-4">
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto bg-hoterra-offwhite/40 px-3 py-4 md:px-5">
                   {loadingMessages ? (
                     <p className="py-8 text-center text-sm text-gray-400">Loading messages...</p>
                   ) : messages.length === 0 ? (
@@ -328,7 +339,7 @@ export function MessagesPage() {
                           >
                             <div
                               className={cn(
-                                'max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm',
+                                'max-w-[88%] rounded-2xl px-4 py-2.5 shadow-sm md:max-w-[75%]',
                                 isMine
                                   ? 'rounded-br-md bg-hoterra-navy text-white'
                                   : 'rounded-bl-md border border-gray-200 bg-white text-gray-800'
@@ -375,7 +386,7 @@ export function MessagesPage() {
                   )}
                 </div>
 
-                <div className="border-t border-gray-200 bg-white px-5 py-4">
+                <div className="border-t border-gray-200 bg-white px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5 md:py-4">
                   {attachedDocument && (
                     <div className="mb-3 flex items-start gap-2">
                       <MessageDocumentCard document={attachedDocument} compact />
@@ -407,7 +418,7 @@ export function MessagesPage() {
                       e.preventDefault();
                       handleSend();
                     }}
-                    className="flex gap-2"
+                    className="flex items-end gap-2"
                   >
                     <input
                       ref={fileInputRef}
@@ -458,10 +469,10 @@ export function MessagesPage() {
                     <button
                       type="submit"
                       disabled={(!draft.trim() && !hasAttachment) || sending}
-                      className="inline-flex items-center gap-2 rounded-lg bg-hoterra-navy px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-hoterra-steel disabled:opacity-50"
+                      className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-hoterra-navy px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-hoterra-steel disabled:opacity-50 md:px-4"
                     >
                       <Send className="h-4 w-4" />
-                      Send
+                      <span className="hidden sm:inline">Send</span>
                     </button>
                   </form>
                 </div>

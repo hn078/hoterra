@@ -475,7 +475,35 @@ export function WorkforcePage() {
               </select>
             </div>
 
-            <div className="card overflow-hidden">
+            <div className="space-y-3 md:hidden">
+              {filtered.map((r) => (
+                <Link key={r.id} to={`/workforce/${r.id}`} className={cn('card block p-4', r.canReviewVendorCorrectionReview && 'border-amber-200 bg-amber-50/60')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-hoterra-navy">{r.code}</div>
+                      <div className="mt-1 line-clamp-2 text-sm text-gray-700">{r.items?.length ? r.items.map((item) => item.position.name).join(', ') : r.position.name}</div>
+                    </div>
+                    <DepartmentBadge name={r.department.name} color={r.department.color} />
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-y border-gray-100 py-3 text-xs">
+                    <div><span className="text-gray-400">Period</span><p className="mt-0.5 font-medium text-gray-700">{formatDate(r.workDate)}–{formatDate(r.endDate)}</p></div>
+                    <div><span className="text-gray-400">Quantity</span><p className="mt-0.5 font-medium text-gray-700">{r.quantity}</p></div>
+                    <div className="col-span-2"><span className="text-gray-400">Vendor</span><p className="mt-0.5 font-medium text-gray-700">{[...new Set((r.items || []).map((item) => item.vendor?.name).filter(Boolean))].join(', ') || r.acceptedVendor?.name || r.vendor?.name || (r.vendorMode === 'BROADCAST' ? 'Broadcast' : '—')}</p></div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    {r.vendorCorrectionReviewStatus && r.vendorCorrectionReviewStatus !== 'DRAFT' ? (
+                      <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">Awaiting {r.vendorCorrectionReviewStatus === 'PENDING_FD' ? 'Finance Director' : 'General Manager'}</span>
+                    ) : (
+                      <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-xs font-medium', WORKFORCE_STATUS_COLORS[r.status])}>{WORKFORCE_STATUS_LABELS[r.status]}</span>
+                    )}
+                    <span className="text-sm font-semibold text-hoterra-steel">{r.canReviewVendorCorrectionReview ? 'Review →' : 'Open →'}</span>
+                  </div>
+                </Link>
+              ))}
+              {filtered.length === 0 && <div className="card p-8 text-center text-sm text-gray-400">No workforce requests yet</div>}
+            </div>
+
+            <div className="card hidden overflow-hidden md:block">
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
                   <tr>

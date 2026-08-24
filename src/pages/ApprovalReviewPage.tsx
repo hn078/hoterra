@@ -364,21 +364,21 @@ export function ApprovalReviewPage() {
   const priority = doc.priority ?? 'MEDIUM';
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mb-2 text-sm text-gray-500">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page lg:overflow-hidden">
+      <div className="border-b border-gray-200 bg-white px-3 py-3 sm:px-6 sm:py-4">
+        <div className="mb-2 truncate text-sm text-gray-500">
           <Link to="/approvals" className="hover:text-hoterra-steel">My Approvals</Link>
           {' › '}
           {doc.title} ({doc.code})
         </div>
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
           <div>
             <h1 className="text-xl font-bold text-hoterra-navy">Approval (Review and Sign)</h1>
             <p className="mt-0.5 text-sm text-gray-500">
               Review document details, check content and approve or request changes
             </p>
           </div>
-          <div ref={headerActionsRef} className="flex items-center gap-2">
+          <div ref={headerActionsRef} className="flex max-w-full items-center gap-2 overflow-x-auto pb-1">
             <div className="relative">
               <button
                 type="button"
@@ -438,8 +438,8 @@ export function ApprovalReviewPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
-        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-r border-t-0 border-l-0 border-b-0 p-5 shadow-none">
+      <div className="flex min-h-0 flex-1 flex-col overflow-visible bg-hoterra-page lg:flex-row lg:overflow-hidden">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none lg:w-80 lg:border-r lg:border-b-0 lg:p-5">
           <section className="mb-6">
             <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Approval Information</h3>
             <dl className="space-y-2.5 text-xs">
@@ -543,7 +543,7 @@ export function ApprovalReviewPage() {
             </div>
           </section>
 
-          <div className="space-y-2">
+          <div className="sticky bottom-0 z-10 -mx-4 space-y-2 border-t border-gray-100 bg-white/95 p-4 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
             {!canAct && awaitingApproval && (
               <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
                 {expectedRole
@@ -589,8 +589,8 @@ export function ApprovalReviewPage() {
           </div>
         </aside>
 
-        <div className="flex w-96 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white">
-          <div className="flex border-b border-gray-200 px-4">
+        <div className="flex min-h-[360px] w-full shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white lg:w-96">
+          <div className="flex overflow-x-auto border-b border-gray-200 px-2 sm:px-4">
             {REVIEW_TABS.map((tab) => (
               <button
                 key={tab}
@@ -830,7 +830,7 @@ export function ApprovalReviewPage() {
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-hoterra-page">
+        <div className="flex min-h-[520px] min-w-0 flex-1 flex-col overflow-hidden bg-hoterra-page">
           <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 text-xs text-gray-500">
             <span>Page 1 of 12</span>
             <div className="flex items-center gap-2">
@@ -850,14 +850,14 @@ export function ApprovalReviewPage() {
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 text-xs">
-            <div className="flex items-center gap-2 text-gray-600">
+          <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-3 py-3 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-4">
+            <div className="flex min-w-0 items-center gap-2 text-gray-600">
               <FileText className="h-4 w-4 text-red-500" />
-              <span>{doc.code.replace(/-/g, '_')}_v{doc.version}.pdf</span>
+              <span className="truncate">{doc.code.replace(/-/g, '_')}_v{doc.version}.pdf</span>
               <span className="text-gray-400">· 1.2 MB</span>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-gray-400">Uploaded {formatDate(doc.createdAt)} by {doc.author.firstName} {doc.author.lastName}</span>
+            <div className="flex items-center justify-end gap-3">
+              <span className="hidden text-gray-400 sm:inline">Uploaded {formatDate(doc.createdAt)} by {doc.author.firstName} {doc.author.lastName}</span>
               <button
                 type="button"
                 onClick={handleOpenNewTab}

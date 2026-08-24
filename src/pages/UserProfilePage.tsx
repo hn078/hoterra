@@ -128,8 +128,8 @@ export function UserProfilePage() {
 
       <PageTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
-      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
-        <aside className="card w-72 shrink-0 overflow-y-auto rounded-none border-r border-t-0 border-l-0 border-b-0 p-5 shadow-none">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page md:flex-row md:overflow-hidden">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none md:w-72 md:border-r md:border-b-0 md:p-5">
           <div className="flex flex-col items-center text-center">
             <UserAvatar firstName={user.firstName} lastName={user.lastName} size="lg" />
             <h2 className="mt-3 text-lg font-bold text-hoterra-navy">

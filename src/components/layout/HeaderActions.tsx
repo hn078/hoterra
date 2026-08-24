@@ -45,7 +45,7 @@ function DropdownShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+    <div className="absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
       <div className="border-b border-gray-100 px-4 py-3">
         <h3 className="text-sm font-semibold text-hoterra-navy">{title}</h3>
       </div>

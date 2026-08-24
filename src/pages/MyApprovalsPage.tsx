@@ -172,7 +172,36 @@ export function MyApprovalsPage() {
       </div>
 
       <div className="flex-1 overflow-auto bg-white">
-        <table className="w-full min-w-[1100px] text-sm">
+        <div className="space-y-3 bg-hoterra-page p-3 md:hidden">
+          {filtered.length === 0 ? (
+            <div className="card p-8 text-center text-sm text-gray-500">No approvals found</div>
+          ) : filtered.map((doc) => {
+            const priority = doc.priority ?? 'MEDIUM';
+            return (
+              <article key={doc.id} className="card p-4">
+                <div className="flex items-start gap-3">
+                  <input type="checkbox" aria-label={`Select ${doc.title}`} className="mt-1 h-5 w-5 rounded" checked={selected.has(doc.id)} onChange={() => toggleSelect(doc.id)} />
+                  <div className="min-w-0 flex-1">
+                    <Link to={`/approvals/${doc.id}/review`} className="block font-semibold leading-5 text-hoterra-navy">{doc.title}</Link>
+                    <p className="mt-1 font-mono text-xs text-gray-500">{doc.code}</p>
+                  </div>
+                  <Link to={`/approvals/${doc.id}/review`} className="btn-primary shrink-0 px-3">Review</Link>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <DepartmentBadge name={doc.department.name} color={doc.department.color} />
+                  <CategoryBadge category={doc.category} />
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_STYLE[priority]}`}>{priority.charAt(0) + priority.slice(1).toLowerCase()}</span>
+                  <StatusBadge status={doc.status} />
+                </div>
+                <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 text-xs">
+                  <span className="text-gray-500">{doc.author.firstName} {doc.author.lastName}</span>
+                  <span className="font-medium text-orange-600">Due {formatDate(doc.nextReviewDate)}</span>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <table className="hidden w-full min-w-[1100px] text-sm md:table">
           <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-6 py-3"><input type="checkbox" className="rounded" checked={filtered.length > 0 && selected.size === filtered.length} onChange={() => {

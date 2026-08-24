@@ -253,7 +253,7 @@ export function DocumentDetailPage() {
               <span className="badge-pill bg-gray-100 text-gray-700">{doc.language}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1">
             <ActionBtn
               icon={Download}
               label="Download"
@@ -284,14 +284,14 @@ export function DocumentDetailPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex border-b border-gray-200 bg-white px-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+        <div className="flex min-h-[520px] flex-1 flex-col overflow-hidden">
+          <div className="flex overflow-x-auto border-b border-gray-200 bg-white px-3 sm:px-6">
             {TABS.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                className={`shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                   activeTab === tab
                     ? 'border-hoterra-gold text-hoterra-navy'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -304,7 +304,7 @@ export function DocumentDetailPage() {
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
+          <div className="flex-1 overflow-y-auto bg-hoterra-page p-3 sm:p-6">
             {activeTab === 'Preview' && (
               <div className="mx-auto max-w-5xl">
                 <DocumentPreviewCanvas
@@ -548,7 +548,7 @@ export function DocumentDetailPage() {
           </div>
         </div>
 
-        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-b-0 p-4 shadow-none xl:w-80 xl:border-l xl:border-t-0 xl:p-5">
           <section className="mb-6">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-hoterra-navy">Document Information</h3>

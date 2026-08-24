@@ -37,11 +37,11 @@ export function Pagination({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 bg-white px-6 py-4">
+    <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-200 bg-white px-3 py-4 sm:flex-row sm:px-6">
       <p className="text-sm text-gray-500">
         Showing {from} to {to} of {total.toLocaleString()} {label}
       </p>
-      <div className="flex items-center gap-4">
+      <div className="flex w-full flex-col-reverse items-center gap-3 sm:w-auto sm:flex-row sm:gap-4">
         {onLimitChange && (
           <div className="flex items-center gap-2 text-sm text-gray-500">
             Rows per page
@@ -56,7 +56,7 @@ export function Pagination({
             </select>
           </div>
         )}
-        <div className="flex items-center gap-1">
+        <div className="flex max-w-full items-center gap-1 overflow-x-auto">
           <button
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
@@ -72,7 +72,7 @@ export function Pagination({
                 key={p}
                 onClick={() => onPageChange(p)}
                 className={cn(
-                  'min-w-[32px] rounded-lg px-2 py-1 text-sm',
+                  'min-w-[44px] rounded-lg px-2 py-1 text-sm',
                   p === page
                     ? 'bg-hoterra-navy text-white'
                     : 'text-gray-600 hover:bg-gray-100'

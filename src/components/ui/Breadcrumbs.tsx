@@ -12,9 +12,9 @@ interface BreadcrumbsProps {
 
 export function Breadcrumbs({ items }: BreadcrumbsProps) {
   return (
-    <nav className="mb-1 flex items-center gap-1 text-sm text-gray-500">
+    <nav className="mb-1 flex max-w-full items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-gray-500">
       {items.map((item, i) => (
-        <span key={i} className="flex items-center gap-1">
+        <span key={i} className="flex shrink-0 items-center gap-1">
           {i > 0 && <ChevronRight className="h-3.5 w-3.5" />}
           {item.to ? (
             <Link to={item.to} className="hover:text-hoterra-steel">

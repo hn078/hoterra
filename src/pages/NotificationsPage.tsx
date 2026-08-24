@@ -175,8 +175,8 @@ export function NotificationsPage() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden bg-hoterra-page">
-        <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page xl:flex-row xl:overflow-hidden">
+        <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden">
           <PageTabs
             tabs={tabs}
             active={activeTab}
@@ -249,7 +249,7 @@ export function NotificationsPage() {
           </div>
         </div>
 
-        <aside className="card w-80 shrink-0 overflow-y-auto rounded-none border-l border-t-0 border-r-0 border-b-0 p-5 shadow-none">
+        <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-b-0 p-4 shadow-none xl:w-80 xl:border-l xl:border-t-0 xl:p-5">
           <h3 className="mb-4 text-sm font-semibold text-hoterra-navy">Notification Preferences</h3>
 
           <div className="mb-6">
