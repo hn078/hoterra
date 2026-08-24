@@ -254,7 +254,7 @@ export function DashboardPage() {
         </div>
 
         <footer className="mt-8 flex items-center justify-between border-t border-gray-200 pt-4 text-xs text-gray-400">
-          <span>© 2025 HOTERRA Document Management System</span>
+          <span>© 2026 HOTERRA Document Management System</span>
           <span>v1.0.3</span>
         </footer>
       </div>

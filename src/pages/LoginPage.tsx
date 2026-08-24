@@ -273,7 +273,7 @@ export function LoginPage() {
 
       <footer className="absolute bottom-4 left-0 right-0 flex items-center justify-between px-8 text-xs text-gray-400">
         <span className="mx-auto lg:mx-0 lg:ml-[45%] lg:pl-12">
-          © 2025 HOTERRA Document Management System. All rights reserved.
+          © 2026 HOTERRA Document Management System. All rights reserved.
         </span>
         <span>v1.0.3</span>
       </footer>
