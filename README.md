@@ -70,6 +70,10 @@ npm run test:tenant-isolation
 
 GitHub Actions bu yoxlamaları PostgreSQL 17 ilə hər push və pull request üçün icra edir.
 
+## Windows tətbiqi
+
+Windows installer production `https://hgi.hoterra.net` workspace-i üçün təhlükəsiz Electron wrapper-dir; ayrıca lokal database saxlamır. Buna görə web və desktop eyni PostgreSQL məlumatından istifadə edir. Lokal development zamanı wrapper `http://localhost:5173` ünvanını açır.
+
 ## Production deploy
 
 Backend deploy-dan əvvəl Railway `preDeployCommand` versionlanmış migration-ları tətbiq edir. Production startup heç vaxt `prisma db push` və ya `--accept-data-loss` işə salmır.

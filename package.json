@@ -2,7 +2,7 @@
   "name": "hoterra-hdms",
   "version": "1.0.7",
   "description": "HOTERRA Hotel Document Management System",
-  "main": "dist-electron/main.js",
+  "main": "desktop/dist-electron/main.js",
   "author": "HOTERRA",
   "license": "UNLICENSED",
   "private": true,
@@ -13,20 +13,20 @@
     "dev": "concurrently -k \"npm run dev:server\" \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:server": "tsx watch server/index.ts",
-    "dev:electron": "wait-on http://localhost:5173 http://127.0.0.1:3211/api/health && electron .",
-    "build": "npm run build:app && electron-builder",
+    "dev:electron": "wait-on http://localhost:5173 http://127.0.0.1:3211/api/health && npm run build:electron && electron desktop",
+    "build": "npm run build:app && npm run dist:win",
     "build:app": "tsc -p tsconfig.node.json && tsc -p tsconfig.server.json && vite build",
     "build:frontend": "vite build",
     "start:frontend": "node scripts/serve-frontend.cjs",
     "build:backend": "tsc -p tsconfig.server.json",
+    "build:electron": "tsc -p tsconfig.node.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "node --test tests/*.test.cjs",
     "test:tenant-isolation": "npm run build:backend && node scripts/test-tenant-isolation.cjs",
     "production:check": "npm run typecheck && npm test && npm run build:app",
     "start:backend": "node dist-server/migrateTenants.js && node dist-server/index.js",
-    "prepare:prisma-bundle": "tsx scripts/prepare-prisma-bundle.ts",
-    "build:win": "npm run build:app && npm run prepare:prisma-bundle && electron-builder --win --publish never",
-    "dist:win": "npm run prepare:prisma-bundle && electron-builder --win --publish never",
+    "build:win": "npm run build:app && npm run dist:win",
+    "dist:win": "electron-builder --projectDir desktop --config electron-builder.yml --win --publish never",
     "preview": "vite preview",
     "db:seed": "tsx server/seed.ts",
     "db:seed:production": "node dist-server/seed.js",
@@ -81,58 +81,5 @@
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "wait-on": "^8.0.3"
-  },
-  "build": {
-    "appId": "com.hoterra.hdms",
-    "productName": "HOTERRA Document Management System",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "dist-server/**/*",
-      "node_modules/@prisma/**/*",
-      "node_modules/.prisma/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "prisma/dev.db",
-        "to": "database/hoterra-template.db"
-      },
-      {
-        "from": "build/prisma/generated-client",
-        "to": "prisma/generated-client",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "build/prisma/npm-client",
-        "to": "prisma/npm-client",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "asarUnpack": [
-      "node_modules/@prisma/**/*",
-      "node_modules/.prisma/**/*",
-      "**/*.node"
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
   }
 }

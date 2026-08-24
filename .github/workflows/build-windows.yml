@@ -27,50 +27,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Prepare database template
-        run: |
-          npx prisma migrate deploy
-          npm run db:seed
-        env:
-          DATABASE_URL: file:./dev.db
-          JWT_SECRET: hoterra-hdms-ci-secret
-
-      - name: Verify seeded database
-        run: |
-          if (!(Test-Path "prisma/dev.db")) { throw "Seeded database prisma/dev.db not found" }
-          $size = (Get-Item "prisma/dev.db").Length
-          Write-Host "Seeded DB size: $size bytes"
-          if ($size -lt 16384) { throw "Seeded database looks empty ($size bytes)" }
-
-      - name: Verify Prisma client bundle
-        run: |
-          if (!(Test-Path "node_modules/.prisma/client/default.js")) { throw "Prisma client not generated" }
-          if (!(Test-Path "node_modules/@prisma/client/runtime/library.js")) { throw "Prisma runtime missing" }
-          Get-ChildItem "node_modules/.prisma/client" | Select-Object Name
-          Get-ChildItem "node_modules/@prisma/client/runtime" | Select-Object Name
-
       - name: Build application
         run: npm run build:app
-        env:
-          DATABASE_URL: file:./dev.db
 
       - name: Build Windows installer
         run: npm run dist:win
 
-      - name: Verify packaged Prisma bundle
+      - name: Verify packaged desktop wrapper
         run: |
-          $client = "release/win-unpacked/resources/prisma/generated-client/default.js"
-          $runtime = "release/win-unpacked/resources/prisma/npm-client/runtime/library.js"
-          $templateDb = "release/win-unpacked/resources/database/hoterra-template.db"
-          if (!(Test-Path $client)) { throw "Packaged Prisma client missing: $client" }
-          if (!(Test-Path $runtime)) { throw "Packaged Prisma runtime missing: $runtime" }
-          if (!(Test-Path $templateDb)) { throw "Packaged template DB missing: $templateDb" }
-          $dbSize = (Get-Item $templateDb).Length
-          Write-Host "Packaged template DB size: $dbSize bytes"
-          if ($dbSize -lt 16384) { throw "Packaged template DB looks empty ($dbSize bytes)" }
+          if (!(Test-Path "release/win-unpacked/resources/app.asar")) { throw "Packaged Electron application missing" }
+          if (!(Get-ChildItem "release" -Filter "*.exe")) { throw "Windows installer missing" }
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4

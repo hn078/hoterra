@@ -1,0 +1,17 @@
+appId: com.hoterra.hdms
+productName: HOTERRA Document Management System
+electronVersion: 36.9.5
+directories:
+  output: ../release
+files:
+  - dist-electron/**/*
+  - package.json
+win:
+  target:
+    - nsis
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
