@@ -385,6 +385,10 @@ class ApiClient {
     }>('/roles');
   }
 
+  getCurrentTenant() {
+    return this.request<{ id: string; slug: string; name: string; url: string }>('/tenant/current');
+  }
+
   checkTenantSlug(slug: string) {
     return this.request<{ slug: string; available: boolean; reason: 'invalid' | 'taken' | null; url: string }>(
       `/settings/tenant/slug-availability?slug=${encodeURIComponent(slug)}`

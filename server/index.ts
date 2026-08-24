@@ -41,6 +41,15 @@ export function createApp() {
 
   app.use('/api', tenantMiddleware);
 
+  app.get('/api/tenant/current', (req, res) => {
+    res.json({
+      id: req.tenant!.id,
+      slug: req.tenant!.slug,
+      name: req.tenant!.name,
+      url: `https://${req.tenant!.slug}.${process.env.TENANT_BASE_DOMAIN || 'hoterra.net'}`,
+    });
+  });
+
   app.use('/api/auth', authRoutes);
   app.use('/api/departments', departmentRoutes);
   app.use('/api/documents', documentRoutes);
