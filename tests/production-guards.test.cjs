@@ -80,3 +80,9 @@ test('frontend CSP allows the production API and Cloudflare analytics only', () 
   assert.match(frontend, /connect-src 'self' https:\/\/api\.hoterra\.net https:\/\/cloudflareinsights\.com/);
   assert.doesNotMatch(frontend, /connect-src[^;]*up\.railway\.app/);
 });
+
+test('frontend build assets stay root-relative on nested SPA routes', () => {
+  const viteConfig = read('vite.config.ts');
+  assert.match(viteConfig, /base:\s*['"]\/["']/);
+  assert.doesNotMatch(viteConfig, /base:\s*['"]\.\/["']/);
+});
