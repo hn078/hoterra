@@ -35,12 +35,19 @@ export const systemPrisma = newClient('*', 2);
 function addTenantToCreateData(data: unknown, tenantId: string): unknown {
   if (Array.isArray(data)) return data.map((row) => addTenantToCreateData(row, tenantId));
   if (!data || typeof data !== 'object') return data;
+  const prototype = Object.getPrototypeOf(data);
+  if (prototype !== Object.prototype && prototype !== null) return data;
   return { ...(data as Record<string, unknown>), tenantId };
 }
 
 function addTenantToNestedWrites(value: unknown, tenantId: string): unknown {
   if (Array.isArray(value)) return value.map((item) => addTenantToNestedWrites(item, tenantId));
   if (!value || typeof value !== 'object') return value;
+  // Prisma arguments contain class instances such as Date, Decimal and Buffer.
+  // Recursing through those values strips their internal representation (a Date
+  // becomes `{}`), so tenant injection must only walk plain argument objects.
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
 
   const source = value as Record<string, unknown>;
   const result: Record<string, unknown> = {};

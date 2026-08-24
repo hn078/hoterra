@@ -65,3 +65,18 @@ test('production runtime rejects weak configuration', () => {
   assert.match(config, /FRONTEND_URL must use HTTPS/);
   assert.match(config, /Production DATABASE_URL must use PostgreSQL/);
 });
+
+test('tenant injection preserves Prisma scalar class instances', () => {
+  const db = read('server/db.ts');
+  assert.match(db, /Object\.getPrototypeOf\(value\)/);
+  assert.match(db, /prototype !== Object\.prototype && prototype !== null/);
+  assert.match(db, /Prisma arguments contain class instances such as Date/);
+});
+
+test('frontend CSP allows the production API and Cloudflare analytics only', () => {
+  const frontend = read('scripts/serve-frontend.cjs');
+  assert.match(frontend, /script-src 'self' https:\/\/static\.cloudflareinsights\.com/);
+  assert.match(frontend, /img-src 'self' data: blob: https:\/\/api\.hoterra\.net/);
+  assert.match(frontend, /connect-src 'self' https:\/\/api\.hoterra\.net https:\/\/cloudflareinsights\.com/);
+  assert.doesNotMatch(frontend, /connect-src[^;]*up\.railway\.app/);
+});

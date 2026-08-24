@@ -61,6 +61,8 @@ export function createApp() {
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Tenant-Slug'],
+    exposedHeaders: ['X-Request-Id'],
+    optionsSuccessStatus: 204,
     maxAge: 86_400,
   }));
   app.use('/api', createRateLimiter({

@@ -39,7 +39,7 @@ SMTP_FROM=HOTERRA <noreply@hoterra.net>
 
 ```text
 NODE_ENV=production
-VITE_API_URL=https://<backend-domain>/api
+VITE_API_URL=https://api.hoterra.net/api
 ```
 
 Secret-lər yalnız Railway Variables-də saxlanılır; repo, build log və frontend `VITE_*` dəyişənlərinə verilməməlidir.
@@ -72,7 +72,8 @@ Volume qoşulmadan production config backend-i açmağa qoymur. Horizontal repli
 
 - `hoterra.net` və `www.hoterra.net` frontend servisə bağlıdır.
 - `*.hoterra.net` wildcard frontend servisə bağlıdır.
-- API ayrıca HTTPS Railway/custom domain-dədir.
+- API `https://api.hoterra.net` custom domain-i ilə Railway backend-ə yönləndirilir.
+- Cloudflare DNS-də `api` CNAME Railway-in verdiyi custom-domain target-ə proxied olaraq bağlıdır.
 - DNS wildcard və custom-domain ownership/TLS statusu Railway/Cloudflare-də aktiv olmalıdır.
 - `CORS_ORIGINS` apex domenləri saxlayır; backend valid `https://<slug>.hoterra.net` origin-lərinə də icazə verir.
 
