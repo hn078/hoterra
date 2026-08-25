@@ -164,7 +164,7 @@ export function RoutesEditorPanel({
 
         <label className="block text-sm">
           <span className="mb-1 block text-xs text-gray-500">
-            This month casual budget ($)
+            This month casual budget (AZN)
           </span>
           <input
             type="number"
@@ -296,11 +296,12 @@ export function SettingsPanel({ meta, onSaved }: { meta: WorkforceMeta; onSaved:
 export function PayrollPanel({
   completedRequestIds,
 }: {
-  completedRequestIds: { id: string; code: string }[];
+  completedRequestIds: { id: string; code: string; vendors: { id: string; name: string }[] }[];
 }) {
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
   const [form, setForm] = useState({
     requestId: '',
+    vendorId: '',
     invoiceNumber: '',
     invoiceHours: '',
     invoiceAmount: '',
@@ -315,11 +316,12 @@ export function PayrollPanel({
     try {
       await api.createWorkforceInvoice({
         requestId: form.requestId,
+        vendorId: form.vendorId,
         invoiceNumber: form.invoiceNumber,
         invoiceHours: Number(form.invoiceHours),
         invoiceAmount: Number(form.invoiceAmount),
       });
-      setForm({ requestId: '', invoiceNumber: '', invoiceHours: '', invoiceAmount: '' });
+      setForm({ requestId: '', vendorId: '', invoiceNumber: '', invoiceHours: '', invoiceAmount: '' });
       load();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed');
@@ -330,15 +332,29 @@ export function PayrollPanel({
     <div className="space-y-4">
       <div className="card space-y-3 p-5">
         <h3 className="text-sm font-semibold text-hoterra-navy">Register vendor invoice</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <select
             value={form.requestId}
-            onChange={(e) => setForm((f) => ({ ...f, requestId: e.target.value }))}
+            onChange={(e) => {
+              const requestId = e.target.value;
+              const vendors = completedRequestIds.find((request) => request.id === requestId)?.vendors || [];
+              setForm((f) => ({ ...f, requestId, vendorId: vendors.length === 1 ? vendors[0].id : '' }));
+            }}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
           >
             <option value="">Completed request…</option>
             {completedRequestIds.map((r) => (
               <option key={r.id} value={r.id}>{r.code}</option>
+            ))}
+          </select>
+          <select
+            value={form.vendorId}
+            onChange={(e) => setForm((f) => ({ ...f, vendorId: e.target.value }))}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          >
+            <option value="">Vendor…</option>
+            {(completedRequestIds.find((request) => request.id === form.requestId)?.vendors || []).map((vendor) => (
+              <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
             ))}
           </select>
           <input
@@ -356,7 +372,7 @@ export function PayrollPanel({
           />
           <input
             type="number"
-            placeholder="Amount $"
+            placeholder="Amount AZN"
             value={form.invoiceAmount}
             onChange={(e) => setForm((f) => ({ ...f, invoiceAmount: e.target.value }))}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -383,7 +399,7 @@ export function PayrollPanel({
                 <td className="px-4 py-2 font-medium">{inv.invoiceNumber}</td>
                 <td className="px-4 py-2">{inv.vendor?.name}</td>
                 <td className="px-4 py-2">{inv.invoiceHours}</td>
-                <td className="px-4 py-2">${inv.invoiceAmount}</td>
+                <td className="px-4 py-2">{inv.invoiceAmount.toFixed(2)} AZN</td>
                 <td className="px-4 py-2">{inv.status}</td>
                 <td className="px-4 py-2 text-right">
                   {inv.status === 'PENDING' || inv.status === 'MISMATCH' ? (

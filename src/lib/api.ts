@@ -966,6 +966,7 @@ class ApiClient {
 
   createWorkforceInvoice(data: {
     requestId: string;
+    vendorId?: string;
     invoiceNumber: string;
     invoiceHours: number;
     invoiceAmount: number;

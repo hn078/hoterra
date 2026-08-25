@@ -97,3 +97,33 @@ test('workforce HOD approvals remain visible and duplicate submissions are idemp
   assert.match(requestPage, /const load = async \(\) =>/);
   assert.match(requestPage, /await load\(\)/);
 });
+
+test('Procurement Workforce managers can access cross-department requests', () => {
+  const workforceRoute = read('server/routes/workforce.ts');
+  assert.match(workforceRoute, /const scopedDepartmentId = isProcurementViewer \? undefined : hodDepartmentId\(req\)/);
+  assert.match(workforceRoute, /!canViewWorkforceRequest\(req, request\) && !canCorrectVendors && !canConfirmProcurementSelection/);
+});
+
+test('workforce actuals support in-service requests and remain role protected', () => {
+  const workforceRoute = read('server/routes/workforce.ts');
+  assert.match(workforceRoute, /WorkforceRequestStatus\.IN_SERVICE/);
+  assert.match(workforceRoute, /Department HOD or Procurement permission required/);
+
+  const requestPage = read('src/pages/WorkforceRequestPage.tsx');
+  assert.match(requestPage, /canEnterActuals/);
+  assert.match(requestPage, /'IN_SERVICE', 'AWAITING_EVALUATION'/);
+});
+
+test('multi-vendor workforce invoices require and match the selected vendor share', () => {
+  const workforceRoute = read('server/routes/workforce.ts');
+  assert.match(workforceRoute, /vendorId required for multi-vendor requests/);
+  assert.match(workforceRoute, /Selected vendor is not assigned to this request/);
+
+  const payroll = read('server/lib/workforcePayroll.ts');
+  assert.match(payroll, /vendorEstimatedCost/);
+  assert.match(payroll, /vendorEstimatedHours/);
+
+  const panel = read('src/components/workforce/WorkforceAdminPanels.tsx');
+  assert.match(panel, /vendorId: form\.vendorId/);
+  assert.match(panel, /Vendor…/);
+});

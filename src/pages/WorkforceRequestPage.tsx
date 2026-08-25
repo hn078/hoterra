@@ -116,6 +116,8 @@ export function WorkforceRequestPage() {
   const isDepartmentHod = !!user && user.role === 'HOD' && user.department?.id === request.departmentId;
   const isProcurementHead = !!user && user.role === 'HOD' && user.department?.code === 'PR';
   const canProcurementConfirm = Boolean(request.canConfirmProcurement);
+  const canSubmitActuals = isDepartmentHod || isProcurementHead || isPrivileged;
+  const canEnterActuals = canSubmitActuals && ['VENDOR_ACCEPTED', 'VENDORS_FULLY_APPROVED', 'IN_SERVICE', 'AWAITING_EVALUATION'].includes(request.status);
   const canEvaluate = !!request.vendorId && (isDepartmentHod || isPrivileged);
   const canReplaceVendor = !!request.vendorId && (isDepartmentHod || isProcurementHead || isPrivileged);
   const canReturnForRevision = !!request.canApprove && !!user && ['FINANCE_DIRECTOR', 'GENERAL_MANAGER'].includes(user.role);
@@ -495,12 +497,12 @@ export function WorkforceRequestPage() {
               </div>
             )}
 
-            {request.actualQuantity != null && (
+            {(canEnterActuals || request.actualQuantity != null) && (
               <div className="card p-5">
                 <h3 className="mb-4 text-sm font-semibold text-hoterra-navy">
                   Service completion
                 </h3>
-                {['VENDOR_ACCEPTED', 'VENDORS_FULLY_APPROVED'].includes(request.status) && request.actualQuantity == null && (
+                {canEnterActuals && request.actualQuantity == null && (
                   <div className="mb-4 grid gap-3 sm:grid-cols-3">
                     <label className="text-sm">
                       <span className="mb-1 block text-xs text-gray-500">Actual staff</span>
@@ -546,11 +548,11 @@ export function WorkforceRequestPage() {
                   <dl className="mb-4 grid grid-cols-3 gap-4 text-sm">
                     <Item label="Actual staff" value={String(request.actualQuantity)} />
                     <Item label="Actual hours" value={String(request.actualHours)} />
-                    <Item label="Actual cost" value={`$${request.actualCost}`} />
+                    <Item label="Actual cost" value={`${request.actualCost?.toFixed(2) || '0.00'} AZN`} />
                   </dl>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {['VENDOR_ACCEPTED', 'VENDORS_FULLY_APPROVED'].includes(request.status) && request.actualQuantity == null && (
+                  {canEnterActuals && request.actualQuantity == null && (
                     <button
                       disabled={busy}
                       onClick={() => run(() => api.submitWorkforceCompletion(request.id, actuals))}

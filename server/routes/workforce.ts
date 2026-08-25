@@ -700,7 +700,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear();
     const month = Number(req.query.month) || new Date().getMonth() + 1;
-    res.json(await buildWorkforceReport(year, month, hodDepartmentId(req)));
+    const isProcurementViewer = await canConfirmProcurement(req.user!.id, req.user!.role);
+    res.json(await buildWorkforceReport(year, month, isProcurementViewer ? undefined : hodDepartmentId(req)));
   })
 );
 
@@ -718,7 +719,8 @@ router.get(
 
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
-    const scopedDepartmentId = hodDepartmentId(req);
+    const isProcurementViewer = await canConfirmProcurement(req.user!.id, req.user!.role);
+    const scopedDepartmentId = isProcurementViewer ? undefined : hodDepartmentId(req);
     if (!scopedDepartmentId && departmentId) where.departmentId = departmentId;
     if (mine) where.createdById = req.user!.id;
 
@@ -811,11 +813,11 @@ router.get(
     await updateEndedRequests();
     const request = await loadRequest(routeParam(req.params.id));
     if (!request) return res.status(404).json({ error: 'Request not found' });
-    if (!canViewWorkforceRequest(req, request)) {
-      return res.status(404).json({ error: 'Request not found' });
-    }
     const canCorrectVendors = await canManageProcurementCatalog(req.user!.id, req.user!.role);
     const canConfirmProcurementSelection = await canConfirmProcurement(req.user!.id, req.user!.role);
+    if (!canViewWorkforceRequest(req, request) && !canCorrectVendors && !canConfirmProcurementSelection) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
     const activeCorrectionReview = request.vendorCorrectionReviews.find((review) =>
       ['DRAFT', 'PENDING_FD', 'PENDING_GM'].includes(review.status)
     );
@@ -1876,8 +1878,19 @@ router.post(
     const id = routeParam(req.params.id);
     const request = await loadRequest(id);
     if (!request) return res.status(404).json({ error: 'Request not found' });
-    if (request.status !== WorkforceRequestStatus.VENDOR_ACCEPTED && request.status !== WorkforceRequestStatus.VENDORS_FULLY_APPROVED) {
-      return res.status(400).json({ error: 'Request must be vendor-accepted before completion' });
+    const completionStatuses: WorkforceRequestStatus[] = [
+      WorkforceRequestStatus.VENDOR_ACCEPTED,
+      WorkforceRequestStatus.VENDORS_FULLY_APPROVED,
+      WorkforceRequestStatus.IN_SERVICE,
+      WorkforceRequestStatus.AWAITING_EVALUATION,
+    ];
+    if (!completionStatuses.includes(request.status)) {
+      return res.status(400).json({ error: 'Request must be accepted or in service before actuals are submitted' });
+    }
+    const isDepartmentHod = req.user!.role === Role.HOD && req.user!.departmentId === request.departmentId;
+    const isProcurement = await canConfirmProcurement(req.user!.id, req.user!.role);
+    if (!isDepartmentHod && !isProcurement && !isPrivilegedApprover(req.user!.role)) {
+      return res.status(403).json({ error: 'Department HOD or Procurement permission required' });
     }
 
     const actualQuantity = Math.max(0, Number(req.body.actualQuantity));
@@ -1895,7 +1908,7 @@ router.post(
       id,
       'COMPLETION_SUBMITTED',
       req.user!,
-      `Actuals: ${actualQuantity} staff, ${actualHours}h, $${actualCost}`
+      `Actuals: ${actualQuantity} staff, ${actualHours}h, ${actualCost.toFixed(2)} AZN`
     );
 
     const full = await loadRequest(id);
@@ -2080,7 +2093,23 @@ router.post(
     if (request.status !== WorkforceRequestStatus.COMPLETED) {
       return res.status(400).json({ error: 'Payroll invoices only for completed requests' });
     }
-    const vendorId = request.acceptedVendorId || request.vendorId;
+    const requestVendorIds = new Set(
+      request.items
+        .map((item) => item.vendorId || item.vendor?.id || item.vendorRate?.vendorId)
+        .filter((vendorId): vendorId is string => Boolean(vendorId))
+    );
+    if (requestVendorIds.size === 0) {
+      const legacyVendorId = request.acceptedVendorId || request.vendorId;
+      if (legacyVendorId) requestVendorIds.add(legacyVendorId);
+    }
+    const requestedVendorId = String(req.body.vendorId || '').trim();
+    if (requestedVendorId && !requestVendorIds.has(requestedVendorId)) {
+      return res.status(400).json({ error: 'Selected vendor is not assigned to this request' });
+    }
+    if (!requestedVendorId && requestVendorIds.size > 1) {
+      return res.status(400).json({ error: 'vendorId required for multi-vendor requests' });
+    }
+    const vendorId = requestedVendorId || [...requestVendorIds][0];
     if (!vendorId) return res.status(400).json({ error: 'No vendor on request' });
 
     const invoice = await prisma.vendorInvoice.create({
@@ -2099,7 +2128,7 @@ router.post(
       requestId,
       'INVOICE_RECEIVED',
       req.user!,
-      `Invoice ${invoiceNumber}: ${invoiceHours}h / $${invoiceAmount}`
+      `Invoice ${invoiceNumber}: ${invoiceHours}h / ${invoiceAmount.toFixed(2)} AZN`
     );
 
     res.status(201).json(invoice);

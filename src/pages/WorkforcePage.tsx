@@ -640,7 +640,7 @@ export function WorkforcePage() {
                 ))}
               </ul>
               <p className="mt-4 text-xs text-gray-500">
-                Lead time rule: min {meta.settings.minLeadHours}h · Est. rate ${meta.settings.estimatedHourlyRate}/h
+                Lead time rule: min {meta.settings.minLeadHours}h · Est. rate {meta.settings.estimatedHourlyRate.toFixed(2)} AZN/h
               </p>
             </div>
             </div>
@@ -732,7 +732,16 @@ export function WorkforcePage() {
           <PayrollPanel
             completedRequestIds={requests
               .filter((r) => r.status === 'COMPLETED')
-              .map((r) => ({ id: r.id, code: r.code }))}
+              .map((r) => {
+                const vendors = new Map<string, { id: string; name: string }>();
+                r.items.forEach((item) => {
+                  const vendor = item.vendor || item.vendorRate?.vendor;
+                  if (vendor) vendors.set(vendor.id, { id: vendor.id, name: vendor.name });
+                });
+                const legacyVendor = r.acceptedVendor || r.vendor;
+                if (vendors.size === 0 && legacyVendor) vendors.set(legacyVendor.id, { id: legacyVendor.id, name: legacyVendor.name });
+                return { id: r.id, code: r.code, vendors: [...vendors.values()] };
+              })}
           />
         )}
 

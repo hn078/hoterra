@@ -1,3 +1,4 @@
+import { WorkforceRateUnit } from '@prisma/client';
 import { prisma } from '../db';
 import { getWorkforceSettings } from './workforce';
 
@@ -12,7 +13,7 @@ export async function matchInvoice(invoiceId: string) {
   const invoice = await prisma.vendorInvoice.findUnique({
     where: { id: invoiceId },
     include: {
-      request: true,
+      request: { include: { items: true } },
       vendor: true,
     },
   });
@@ -21,21 +22,56 @@ export async function matchInvoice(invoiceId: string) {
     return { error: 'Request has no actual hours/cost yet' as const };
   }
 
+  const days = Math.max(
+    1,
+    Math.floor((Date.UTC(
+      invoice.request.endDate.getUTCFullYear(),
+      invoice.request.endDate.getUTCMonth(),
+      invoice.request.endDate.getUTCDate()
+    ) - Date.UTC(
+      invoice.request.workDate.getUTCFullYear(),
+      invoice.request.workDate.getUTCMonth(),
+      invoice.request.workDate.getUTCDate()
+    )) / 86_400_000) + 1
+  );
+  const itemHours = (item: (typeof invoice.request.items)[number]) => {
+    const perWorker = item.rateUnit === WorkforceRateUnit.DAILY_9
+      ? 9
+      : item.rateUnit === WorkforceRateUnit.DAILY_12
+        ? 12
+        : item.hours || settings.estimatedHoursPerShift;
+    return item.quantity * perWorker * days;
+  };
+  const allEstimatedCost = invoice.request.items.reduce((sum, item) => sum + (item.estimatedCost || 0), 0);
+  const vendorEstimatedCost = invoice.request.items
+    .filter((item) => item.vendorId === invoice.vendorId)
+    .reduce((sum, item) => sum + (item.estimatedCost || 0), 0);
+  const allEstimatedHours = invoice.request.items.reduce((sum, item) => sum + itemHours(item), 0);
+  const vendorEstimatedHours = invoice.request.items
+    .filter((item) => item.vendorId === invoice.vendorId)
+    .reduce((sum, item) => sum + itemHours(item), 0);
+  const expectedHours = invoice.request.items.length && allEstimatedHours > 0
+    ? invoice.request.actualHours * vendorEstimatedHours / allEstimatedHours
+    : invoice.request.actualHours;
+  const expectedCost = invoice.request.items.length && allEstimatedCost > 0
+    ? invoice.request.actualCost * vendorEstimatedCost / allEstimatedCost
+    : invoice.request.actualCost;
+
   const hoursOk = withinTolerance(
-    invoice.request.actualHours,
+    expectedHours,
     invoice.invoiceHours,
     settings.payrollTolerancePct
   );
   const amountOk = withinTolerance(
-    invoice.request.actualCost,
+    expectedCost,
     invoice.invoiceAmount,
     settings.payrollTolerancePct
   );
 
   const status = hoursOk && amountOk ? 'MATCHED' : 'MISMATCH';
   const notes = [
-    `Hours: actual ${invoice.request.actualHours} vs invoice ${invoice.invoiceHours}`,
-    `Amount: actual $${invoice.request.actualCost} vs invoice $${invoice.invoiceAmount}`,
+    `Hours: expected ${expectedHours.toFixed(2)} vs invoice ${invoice.invoiceHours}`,
+    `Amount: expected ${expectedCost.toFixed(2)} AZN vs invoice ${invoice.invoiceAmount} AZN`,
     `Tolerance: ±${settings.payrollTolerancePct}%`,
   ].join('; ');
 
