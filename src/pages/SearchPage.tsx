@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Search,
@@ -9,17 +9,20 @@ import {
   Building2,
   GitBranch,
   LayoutTemplate,
-  MoreHorizontal,
   List,
   LayoutGrid,
+  BriefcaseBusiness,
+  X,
 } from 'lucide-react';
 import { Header, DepartmentBadge, StatusBadge } from '@/components/layout/Sidebar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
-import type { Document, User as UserType, Department, Template, WorkflowItem } from '@/types';
-import { CATEGORY_LABELS } from '@/types';
+import type { Document, User as UserType, Department, Template, WorkflowItem, WorkforceSearchResult } from '@/types';
+import { CATEGORY_LABELS, WORKFORCE_STATUS_LABELS } from '@/types';
 import { countWorkflowSteps } from '@/lib/workflows';
 import { formatDateTime } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 const RESULT_TABS = [
   { id: 'all', label: 'All Results' },
@@ -28,14 +31,10 @@ const RESULT_TABS = [
   { id: 'departments', label: 'Departments' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'templates', label: 'Templates' },
+  { id: 'workforce', label: 'Casual Workforce' },
 ];
 
-const SAVED_SEARCHES = [
-  { id: '1', query: 'Q2 Financial Reports', count: 12 },
-  { id: '2', query: 'Front Office SOPs', count: 28 },
-  { id: '3', query: 'Pending Approvals', count: 5 },
-  { id: '4', query: 'Housekeeping Checklists', count: 8 },
-];
+type SavedSearch = { id: string; query: string; count: number };
 
 type SearchResults = {
   documents: Document[];
@@ -43,6 +42,7 @@ type SearchResults = {
   departments: Department[];
   templates: Template[];
   workflows: WorkflowItem[];
+  workforce: WorkforceSearchResult[];
   total: number;
 };
 
@@ -52,23 +52,42 @@ const EMPTY_RESULTS: SearchResults = {
   departments: [],
   templates: [],
   workflows: [],
+  workforce: [],
   total: 0,
 };
 
 export function SearchPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const canManageTemplates = hasCapability(currentUser, 'templates.manage');
+  const canManageTemplatesHotelWide = hasCapability(currentUser, 'documents.read.all');
+  const canManageWorkflows = hasCapability(currentUser, 'workflows.manage');
+  const canReadDocuments = hasCapability(currentUser, 'documents.read');
+  const canReadUsers = hasCapability(currentUser, 'users.directory.read');
+  const canReadDepartments = hasCapability(currentUser, 'departments.read');
+  const canReadWorkflows = hasCapability(currentUser, 'workflows.read');
+  const canReadTemplates = hasCapability(currentUser, 'templates.read');
+  const canReadWorkforce = hasCapability(currentUser, 'workforce.read');
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [results, setResults] = useState<SearchResults>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [sort, setSort] = useState('relevance');
+  const [appliedFilterParams, setAppliedFilterParams] = useState<Record<string, string>>({});
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [manageSaved, setManageSaved] = useState(false);
+  const [showTips, setShowTips] = useState(false);
+  const searchSequence = useRef(0);
   const [filters, setFilters] = useState({
     searchIn: 'all',
     fileType: 'all',
     module: 'all',
-    dateRange: 'custom',
+    dateRange: 'all',
     createdBy: 'all',
-    department: 'all',
+    departmentId: 'all',
     includeArchived: false,
   });
 
@@ -77,35 +96,62 @@ export function SearchPage() {
     if (q) setQuery(q);
   }, [searchParams]);
 
+  const savedSearchKey = `hoterra:saved-searches:${currentUser?.id ?? 'anonymous'}`;
+
+  useEffect(() => {
+    if (canReadDepartments) api.getDepartments().then(setDepartments).catch(() => setDepartments([]));
+  }, [canReadDepartments]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(savedSearchKey) || '[]');
+      setSavedSearches(Array.isArray(saved) ? saved.slice(0, 20) : []);
+    } catch {
+      setSavedSearches([]);
+    }
+  }, [savedSearchKey]);
+
   const buildFilterParams = (): Record<string, string> => {
     const params: Record<string, string> = {};
     if (filters.searchIn !== 'all') params.searchIn = filters.searchIn;
     if (filters.fileType !== 'all') params.fileType = filters.fileType;
     if (filters.module !== 'all') params.module = filters.module;
-    if (filters.dateRange !== 'custom') params.dateRange = filters.dateRange;
+    if (filters.dateRange !== 'all') params.dateRange = filters.dateRange;
     if (filters.createdBy !== 'all') params.createdBy = filters.createdBy;
-    if (filters.department !== 'all') params.department = filters.department;
+    if (filters.departmentId !== 'all') params.departmentId = filters.departmentId;
     if (filters.includeArchived) params.includeArchived = 'true';
     return params;
   };
 
   useEffect(() => {
+    const sequence = ++searchSequence.current;
     if (!query.trim()) {
       setResults(EMPTY_RESULTS);
+      setSearchError(null);
+      setLoading(false);
       return;
     }
 
     const timer = setTimeout(() => {
       setLoading(true);
+      setSearchError(null);
       api
-        .search(query.trim(), activeTab)
-        .then(setResults)
-        .catch(console.error)
-        .finally(() => setLoading(false));
+        .search(query.trim(), activeTab, { ...appliedFilterParams, sort })
+        .then((nextResults) => {
+          if (searchSequence.current === sequence) setResults(nextResults);
+        })
+        .catch((error) => {
+          if (searchSequence.current !== sequence) return;
+          setResults(EMPTY_RESULTS);
+          setSearchError(error instanceof Error ? error.message : 'Search failed');
+        })
+        .finally(() => {
+          if (searchSequence.current === sequence) setLoading(false);
+        });
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [query, activeTab]);
+  }, [query, activeTab, appliedFilterParams, sort]);
 
   const tabCounts: Record<string, number> = {
     all: results.total,
@@ -114,31 +160,56 @@ export function SearchPage() {
     departments: results.departments.length,
     workflows: results.workflows.length,
     templates: results.templates.length,
+    workforce: results.workforce.length,
   };
 
   const handleApplyFilters = () => {
-    if (query.trim()) {
-      setLoading(true);
-      api
-        .search(query.trim(), activeTab, buildFilterParams())
-        .then(setResults)
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    }
+    setAppliedFilterParams(buildFilterParams());
   };
+
+  const clearFilters = () => {
+    setFilters({ searchIn: 'all', fileType: 'all', module: 'all', dateRange: 'all', createdBy: 'all', departmentId: 'all', includeArchived: false });
+    setAppliedFilterParams({});
+  };
+
+  const saveCurrentSearch = () => {
+    const value = query.trim();
+    if (!value) return;
+    const next = [
+      { id: crypto.randomUUID(), query: value, count: results.total },
+      ...savedSearches.filter((saved) => saved.query.toLowerCase() !== value.toLowerCase()),
+    ].slice(0, 20);
+    setSavedSearches(next);
+    localStorage.setItem(savedSearchKey, JSON.stringify(next));
+  };
+
+  const removeSavedSearch = (id: string) => {
+    const next = savedSearches.filter((saved) => saved.id !== id);
+    setSavedSearches(next);
+    localStorage.setItem(savedSearchKey, JSON.stringify(next));
+  };
+
+  const visibleTabs = RESULT_TABS.filter((tab) => tab.id === 'all' || (
+    (tab.id === 'documents' && canReadDocuments)
+    || (tab.id === 'users' && canReadUsers)
+    || (tab.id === 'departments' && canReadDepartments)
+    || (tab.id === 'workflows' && canReadWorkflows)
+    || (tab.id === 'templates' && canReadTemplates)
+    || (tab.id === 'workforce' && canReadWorkforce)
+  ));
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title="Search"
-        subtitle="Find documents, users, departments, workflows and more"
+        subtitle="Find documents, people, workflows and workforce requests"
         action={
           <div className="flex items-center gap-3">
-            <button className="inline-flex items-center gap-2 text-sm text-hoterra-steel hover:underline">
+            <button type="button" onClick={() => setShowTips((value) => !value)} className="inline-flex items-center gap-2 text-sm text-hoterra-steel hover:underline">
               <Lightbulb className="h-4 w-4" />
               Search Tips
             </button>
-            <button className="btn-secondary">
+            <button type="button" onClick={saveCurrentSearch} disabled={!query.trim()} className="btn-secondary disabled:opacity-50">
               <Bookmark className="h-4 w-4" />
               Save Search
             </button>
@@ -155,13 +226,21 @@ export function SearchPage() {
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search documents, users, departments, workflows..."
+                maxLength={200}
+                placeholder="Search documents, people, request codes, services or vendors..."
                 className="w-full rounded-xl border border-gray-200 py-4 pl-14 pr-4 text-base shadow-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
               />
             </div>
 
+            {showTips && (
+              <div className="mx-auto mt-3 flex max-w-4xl items-start justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+                <span>Use a title, document code, employee name, department, workflow, or template name. Filters are applied server-side inside your access scope.</span>
+                <button type="button" onClick={() => setShowTips(false)}><X className="h-4 w-4" /></button>
+              </div>
+            )}
+
             <div className="mx-auto mt-4 flex max-w-4xl flex-wrap gap-4 border-b border-gray-100">
-              {RESULT_TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -191,10 +270,10 @@ export function SearchPage() {
                   : 'Enter a search query'}
             </p>
             <div className="flex items-center gap-3">
-              <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs">
-                <option>Sort by: Relevance</option>
-                <option>Sort by: Date</option>
-                <option>Sort by: Name</option>
+              <select value={sort} onChange={(event) => setSort(event.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs">
+                <option value="relevance">Sort by: Relevance</option>
+                <option value="date">Sort by: Date</option>
+                <option value="name">Sort by: Name</option>
               </select>
               <div className="flex rounded-lg border border-gray-200">
                 <button
@@ -222,6 +301,8 @@ export function SearchPage() {
               <div className="flex h-48 items-center justify-center text-sm text-gray-500">
                 Loading results...
               </div>
+            ) : searchError ? (
+              <div className="flex h-48 items-center justify-center text-sm text-red-600">{searchError}</div>
             ) : results.total === 0 ? (
               <div className="flex h-48 items-center justify-center text-sm text-gray-500">
                 No results found for "{query}"
@@ -237,7 +318,14 @@ export function SearchPage() {
                       title={doc.title}
                       breadcrumb={`Documents › ${doc.department.name} › ${CATEGORY_LABELS[doc.category]}`}
                       description={doc.description || 'No description available'}
-                      tags={[doc.category, doc.code]}
+                      tags={[
+                        doc.category,
+                        doc.code,
+                        ...(doc.matchedInAttachment
+                          ? [`Matched attachment${doc.matchedFileNames?.[0] ? `: ${doc.matchedFileNames[0]}` : ''}`]
+                          : doc.matchedInUploadedFile ? ['Matched in primary file'] : []),
+                        ...(doc.searchIndexStatus === 'OCR_REQUIRED' ? ['OCR required'] : []),
+                      ]}
                       meta={
                         <div className="flex items-center gap-2">
                           <UserAvatar firstName={doc.author.firstName} lastName={doc.author.lastName} size="sm" />
@@ -281,7 +369,7 @@ export function SearchPage() {
                       meta={
                         <DepartmentBadge name={dept.name} color={dept.color} />
                       }
-                      link={`/departments/${dept.id}`}
+                      link={canManageTemplatesHotelWide || dept.id === currentUser?.department?.id ? `/departments/${dept.id}` : '/departments'}
                     />
                   ))}
 
@@ -298,7 +386,7 @@ export function SearchPage() {
                         ...(wf.isDefault ? ['Default'] : []),
                         ...(wf.status ? [wf.status === 'ACTIVE' ? 'Active' : wf.status === 'DRAFT' ? 'Draft' : 'Archived'] : ['Custom']),
                       ]}
-                      link={`/workflows/${wf.id}/designer`}
+                      link={canManageWorkflows ? `/workflows/${wf.id}/designer` : '/workflows'}
                     />
                   ))}
 
@@ -312,7 +400,25 @@ export function SearchPage() {
                       breadcrumb="Templates"
                       description={tmpl.description || CATEGORY_LABELS[tmpl.category]}
                       tags={[CATEGORY_LABELS[tmpl.category]]}
-                      link={`/templates/${tmpl.id}/edit`}
+                      link={canManageTemplates && (canManageTemplatesHotelWide || tmpl.departmentId === currentUser?.department?.id) ? `/templates/${tmpl.id}/edit` : '/templates'}
+                    />
+                  ))}
+
+                {(activeTab === 'all' || activeTab === 'workforce') &&
+                  results.workforce.map((request) => (
+                    <ResultCard
+                      key={`workforce-${request.id}`}
+                      icon={BriefcaseBusiness}
+                      iconColor="text-cyan-600"
+                      title={request.code}
+                      breadcrumb={`Casual Workforce › ${request.department.name}`}
+                      description={`${request.services.join(', ') || 'Workforce services'} · ${formatDateTime(request.workDate)} – ${formatDateTime(request.endDate)}`}
+                      tags={[
+                        WORKFORCE_STATUS_LABELS[request.status],
+                        `${request.quantity} staff`,
+                        ...request.vendorNames.slice(0, 2),
+                      ]}
+                      link={`/workforce/${request.id}`}
                     />
                   ))}
               </div>
@@ -324,17 +430,7 @@ export function SearchPage() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold text-hoterra-navy">Filter Results</h3>
             <button
-              onClick={() =>
-                setFilters({
-                  searchIn: 'all',
-                  fileType: 'all',
-                  module: 'all',
-                  dateRange: 'custom',
-                  createdBy: 'all',
-                  department: 'all',
-                  includeArchived: false,
-                })
-              }
+              onClick={clearFilters}
               className="text-xs text-hoterra-steel hover:underline"
             >
               Clear All
@@ -364,6 +460,8 @@ export function SearchPage() {
                 <option value="pdf">PDF</option>
                 <option value="docx">Word</option>
                 <option value="xlsx">Excel</option>
+                <option value="txt">Text</option>
+                <option value="csv">CSV</option>
               </select>
             </FilterField>
 
@@ -374,9 +472,10 @@ export function SearchPage() {
                 className="input text-sm"
               >
                 <option value="all">All Modules</option>
-                <option value="documents">Documents</option>
-                <option value="templates">Templates</option>
-                <option value="workflows">Workflows</option>
+                {canReadDocuments && <option value="documents">Documents</option>}
+                {canReadTemplates && <option value="templates">Templates</option>}
+                {canReadWorkflows && <option value="workflows">Workflows</option>}
+                {canReadWorkforce && <option value="workforce">Casual Workforce</option>}
               </select>
             </FilterField>
 
@@ -386,7 +485,7 @@ export function SearchPage() {
                 onChange={(e) => setFilters({ ...filters, dateRange: e.target.value })}
                 className="input text-sm"
               >
-                <option value="custom">Custom Range</option>
+                <option value="all">All time</option>
                 <option value="7d">Last 7 days</option>
                 <option value="30d">Last 30 days</option>
                 <option value="90d">Last 90 days</option>
@@ -406,14 +505,12 @@ export function SearchPage() {
 
             <FilterField label="Department">
               <select
-                value={filters.department}
-                onChange={(e) => setFilters({ ...filters, department: e.target.value })}
+                value={filters.departmentId}
+                onChange={(e) => setFilters({ ...filters, departmentId: e.target.value })}
                 className="input text-sm"
               >
                 <option value="all">All Departments</option>
-                <option value="fo">Front Office</option>
-                <option value="fi">Finance</option>
-                <option value="hk">Housekeeping</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
               </select>
             </FilterField>
 
@@ -435,22 +532,22 @@ export function SearchPage() {
           <div className="mt-8">
             <div className="mb-3 flex items-center justify-between">
               <h4 className="text-sm font-semibold text-hoterra-navy">Saved Searches</h4>
-              <button className="text-xs text-hoterra-steel hover:underline">Manage</button>
+              {savedSearches.length > 0 && <button type="button" onClick={() => setManageSaved((value) => !value)} className="text-xs text-hoterra-steel hover:underline">{manageSaved ? 'Done' : 'Manage'}</button>}
             </div>
             <div className="space-y-2">
-              {SAVED_SEARCHES.map((saved) => (
-                <button
+              {savedSearches.map((saved) => (
+                <div
                   key={saved.id}
-                  onClick={() => setQuery(saved.query)}
                   className="flex w-full items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-left text-sm hover:border-hoterra-steel hover:bg-white"
                 >
-                  <span className="font-medium text-gray-700">{saved.query}</span>
+                  <button type="button" onClick={() => setQuery(saved.query)} className="min-w-0 flex-1 truncate text-left font-medium text-gray-700">{saved.query}</button>
                   <span className="flex items-center gap-1 text-xs text-gray-400">
                     {saved.count} results
-                    <Bookmark className="h-3 w-3 text-hoterra-steel" />
+                    {manageSaved ? <button type="button" onClick={() => removeSavedSearch(saved.id)} className="text-red-500"><X className="h-3.5 w-3.5" /></button> : <Bookmark className="h-3 w-3 text-hoterra-steel" />}
                   </span>
-                </button>
+                </div>
               ))}
+              {savedSearches.length === 0 && <p className="text-xs text-gray-400">No saved searches yet.</p>}
             </div>
           </div>
         </aside>
@@ -496,9 +593,6 @@ function ResultCard({
         </div>
         {meta && <div className="mt-2">{meta}</div>}
       </div>
-      <button className="shrink-0 self-start text-gray-400 hover:text-gray-600">
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
     </div>
   );
 

@@ -147,10 +147,3 @@ export function stopEmailOutboxWorker() {
   transport?.close();
   transport = null;
 }
-
-export async function listOutbox(limit = 50) {
-  return prisma.emailOutbox.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: Math.min(200, Math.max(1, limit)),
-  });
-}

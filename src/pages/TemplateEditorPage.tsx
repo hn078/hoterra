@@ -21,9 +21,11 @@ import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { DocumentPreviewCanvas } from '@/components/documents/DocumentPreviewCanvas';
 import { api } from '@/lib/api';
 import { TEMPLATE_FIELDS } from '@/data/mock';
-import type { Role, SignaturePlacement, Template } from '@/types';
+import type { Department, DocumentCategory, Role, SignaturePlacement, Template } from '@/types';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
-import { SIGNATURE_ROLES } from '@/lib/signatures';
+import { parseSignaturePlacements, SIGNATURE_ROLES } from '@/lib/signatures';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 const DEFAULT_CONTENT = `# Standard Operating Procedure
 
@@ -75,9 +77,17 @@ export function TemplateEditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const isNew = !id || id === 'new';
+  const currentUser = useAuthStore((state) => state.user);
+  const canManageAll = hasCapability(currentUser, 'documents.read.all');
   const [template, setTemplate] = useState<Template | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [content, setContent] = useState(DEFAULT_CONTENT);
   const [name, setName] = useState('New SOP Template');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<DocumentCategory>('SOP');
+  const [version, setVersion] = useState('1.0');
+  const [status, setStatus] = useState('ACTIVE');
+  const [departmentId, setDepartmentId] = useState<string | null>(currentUser?.department?.id ?? null);
   const [previewMode, setPreviewMode] = useState(false);
   const [designSignatures, setDesignSignatures] = useState(false);
   const [placements, setPlacements] = useState<SignaturePlacement[]>(DEFAULT_PLACEMENTS);
@@ -87,17 +97,28 @@ export function TemplateEditorPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    api.getDepartments().then(setDepartments).catch(() => setDepartments([]));
+  }, []);
+
+  useEffect(() => {
+    if (!canManageAll && currentUser?.department?.id) setDepartmentId(currentUser.department.id);
+  }, [canManageAll, currentUser?.department?.id]);
+
+  useEffect(() => {
     if (!isNew && id) {
       api.getTemplate(id).then((t) => {
         setTemplate(t);
         setName(t.name);
+        setDescription(t.description ?? '');
+        setCategory(t.category);
+        setVersion(t.version ?? '1.0');
+        setStatus(t.status ?? (t.isActive === false ? 'DRAFT' : 'ACTIVE'));
+        setDepartmentId(t.departmentId ?? null);
         if (t.content) setContent(t.content);
         if (t.pageCount) setPageCount(t.pageCount);
-        if (t.signaturePlacement) {
-          const raw = typeof t.signaturePlacement === 'string' ? JSON.parse(t.signaturePlacement) : t.signaturePlacement;
-          if (Array.isArray(raw) && raw.length) setPlacements(raw);
-        }
-      }).catch(console.error);
+        const savedPlacements = parseSignaturePlacements(t.signaturePlacement);
+        if (savedPlacements.length) setPlacements(savedPlacements);
+      }).catch((err) => setError(err instanceof Error ? err.message : 'Template could not be loaded'));
     }
   }, [id, isNew]);
 
@@ -105,8 +126,17 @@ export function TemplateEditorPage() {
     setSaving(true);
     setError(null);
     try {
-      const category = template?.category ?? 'SOP';
-      const payload = { name, category, content, signaturePlacement: placements, pageCount };
+      const payload = {
+        name,
+        description,
+        category,
+        content,
+        version,
+        status,
+        departmentId: canManageAll ? departmentId : currentUser?.department?.id,
+        signaturePlacement: placements,
+        pageCount,
+      };
       if (isNew) {
         await api.createTemplate(payload);
       } else if (id) {
@@ -175,15 +205,13 @@ export function TemplateEditorPage() {
             ))}
           </div>
         ))}
-        {isNew && (
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Template name"
-            className="ml-auto max-w-xs rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-hoterra-steel focus:outline-none"
-          />
-        )}
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Template name"
+          className="ml-auto max-w-xs rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-hoterra-steel focus:outline-none"
+        />
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page lg:flex-row lg:overflow-hidden">
@@ -246,6 +274,46 @@ export function TemplateEditorPage() {
         </div>
 
         <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-b-0 p-4 shadow-none lg:w-72 lg:border-l lg:border-t-0">
+          <div className="mb-5 space-y-3 border-b border-gray-100 pb-5">
+            <h3 className="text-sm font-semibold text-hoterra-navy">Template Settings</h3>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Description</label>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={2000} className="input w-full resize-none text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">Category</label>
+                <select value={category} onChange={(e) => setCategory(e.target.value as DocumentCategory)} className="input w-full text-sm">
+                  {Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">Version</label>
+                <input value={version} onChange={(e) => setVersion(e.target.value)} className="input w-full text-sm" placeholder="1.0" />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Status</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value)} className="input w-full text-sm">
+                <option value="ACTIVE">Active</option>
+                <option value="DRAFT">Draft</option>
+                <option value="UNDER_REVIEW">Under Review</option>
+                {!isNew && <option value="ARCHIVED">Archived</option>}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">Department</label>
+              <select
+                value={departmentId ?? ''}
+                onChange={(e) => setDepartmentId(e.target.value || null)}
+                disabled={!canManageAll}
+                className="input w-full text-sm disabled:bg-gray-50 disabled:text-gray-500"
+              >
+                {canManageAll && <option value="">Global template</option>}
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
+            </div>
+          </div>
           {designSignatures ? (
             <>
               <h3 className="mb-1 text-sm font-semibold text-hoterra-navy">Signature Placement</h3>

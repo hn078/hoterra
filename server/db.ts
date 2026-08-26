@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { requireTenantContext } from './lib/tenantContext';
+import { getRequestId } from './lib/requestContext';
 
 const TENANT_MODELS = new Set([
   'Department', 'User', 'CustomRole', 'Document', 'DocumentVersion', 'DocumentHistory',
@@ -11,6 +12,7 @@ const TENANT_MODELS = new Set([
   'WorkforceVendorCorrectionReview', 'WorkforceVendorCorrection',
   'WorkforceQualityEvaluation', 'WorkforceRequestEvent', 'WorkforceRequestTemplate',
   'VendorInvite', 'VendorInvoice', 'EmailOutbox',
+  'RetentionPolicy', 'DocumentDispositionRequest', 'DocumentSearchIndex',
 ]);
 
 function databaseUrlForTenant(tenantId: string, connectionLimit: number): string | undefined {
@@ -28,9 +30,10 @@ function newClient(tenantId: string, connectionLimit: number): PrismaClient {
   return new PrismaClient(url ? { datasources: { db: { url } } } : undefined);
 }
 
-// The system client deliberately uses the wildcard RLS context. Request
-// handlers must always use `prisma`, never this infrastructure client.
-export const systemPrisma = newClient('*', 2);
+// The runtime system client can read the non-tenant Tenant registry, health
+// metadata and PostgreSQL catalogs only. Its sentinel deliberately matches no
+// tenant RLS policy; migration/admin work uses DATABASE_ADMIN_URL separately.
+export const systemPrisma = newClient('__system__', 2);
 
 function addTenantToCreateData(data: unknown, tenantId: string): unknown {
   if (Array.isArray(data)) return data.map((row) => addTenantToCreateData(row, tenantId));
@@ -67,7 +70,15 @@ function addTenantToNestedWrites(value: unknown, tenantId: string): unknown {
   return result;
 }
 
-function scopeArgs(operation: string, input: unknown, tenantId: string) {
+function addAuditRequestId(data: unknown, requestId: string): unknown {
+  if (Array.isArray(data)) return data.map((row) => addAuditRequestId(row, requestId));
+  if (!data || typeof data !== 'object') return data;
+  const prototype = Object.getPrototypeOf(data);
+  if (prototype !== Object.prototype && prototype !== null) return data;
+  return { ...(data as Record<string, unknown>), requestId };
+}
+
+function scopeArgs(model: string, operation: string, input: unknown, tenantId: string) {
   const args = { ...((input || {}) as Record<string, unknown>) };
   const whereOperations = new Set([
     'findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'findMany',
@@ -80,6 +91,8 @@ function scopeArgs(operation: string, input: unknown, tenantId: string) {
   }
   if (operation === 'create' || operation === 'createMany' || operation === 'createManyAndReturn') {
     args.data = addTenantToCreateData(addTenantToNestedWrites(args.data, tenantId), tenantId);
+    const requestId = getRequestId();
+    if (model === 'AuditLog' && requestId) args.data = addAuditRequestId(args.data, requestId);
   } else if (operation === 'update' || operation === 'updateMany' || operation === 'updateManyAndReturn') {
     args.data = addTenantToCreateData(addTenantToNestedWrites(args.data, tenantId), tenantId);
   } else if (operation === 'upsert') {
@@ -97,7 +110,7 @@ function createTenantClient(tenantId: string) {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           if (!model || !TENANT_MODELS.has(model)) return query(args);
-          return query(scopeArgs(operation, args, tenantId));
+          return query(scopeArgs(model, operation, args, tenantId));
         },
       },
     },

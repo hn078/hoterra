@@ -10,7 +10,7 @@ const DEFAULT_TENANT_NAME = process.env.DEFAULT_TENANT_NAME || 'Holiday Inn Baku
 const TENANT_TABLES = [
   'Department', 'User', 'CustomRole', 'Document', 'DocumentVersion', 'DocumentHistory',
   'DocumentComment', 'DocumentAttachment', 'Template', 'WorkflowRoute', 'Signature',
-  'AuditLog', 'Notification', 'SystemSettings', 'UserFavorite', 'Conversation',
+  'AuditLog', 'Notification', 'UserNotificationPreference', 'SystemSettings', 'UserFavorite', 'Conversation',
   'ConversationParticipant', 'Message', 'WorkforcePosition', 'Vendor', 'VendorServiceRate',
   'VendorApprovalEvent', 'WorkforceApprovalRoute', 'DepartmentCasualBudget',
   'WorkforceSettings', 'WorkforceRequest', 'WorkforceRequestItem',
@@ -25,6 +25,15 @@ function databaseUrlWithSystemContext() {
   url.searchParams.set('options', `${currentOptions} -c hoterra.tenant_id=*`.trim());
   if (!url.searchParams.has('connection_limit')) url.searchParams.set('connection_limit', '2');
   return url.toString();
+}
+
+function runtimeRoleIdentifier() {
+  const roleName = process.env.APP_DATABASE_USER;
+  if (!roleName) return null;
+  if (!/^[a-z][a-z0-9_]{2,62}$/.test(roleName)) {
+    throw new Error('APP_DATABASE_USER must be a safe PostgreSQL role name');
+  }
+  return { roleName, quoted: `"${roleName}"` };
 }
 
 function runPrisma(args) {
@@ -92,6 +101,20 @@ async function baselineIfRequired(db, hasExistingSchema) {
   runPrisma(['migrate', 'resolve', '--applied', BASELINE_MIGRATION]);
 }
 
+async function enforceRuntimeAppendOnlyPrivileges() {
+  const role = runtimeRoleIdentifier();
+  if (!role) return;
+  const db = new PrismaClient({ datasources: { db: { url: databaseUrlWithSystemContext() } } });
+  try {
+    const exists = await db.$queryRawUnsafe('SELECT 1 FROM pg_roles WHERE rolname = $1', role.roleName);
+    if (!exists.length || !(await tableExists(db, 'AuditLog'))) return;
+    await db.$executeRawUnsafe(`REVOKE UPDATE, DELETE ON TABLE "AuditLog" FROM ${role.quoted}`);
+    console.log(`[database] enforced append-only AuditLog privileges for ${role.roleName}`);
+  } finally {
+    await db.$disconnect();
+  }
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
   if (!process.env.DATABASE_URL.startsWith('postgresql://') && !process.env.DATABASE_URL.startsWith('postgres://')) {
@@ -107,6 +130,7 @@ async function main() {
   }
 
   runPrisma(['migrate', 'deploy']);
+  await enforceRuntimeAppendOnlyPrivileges();
 }
 
 main().catch((error) => {

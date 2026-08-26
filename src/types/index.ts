@@ -15,7 +15,55 @@ export type DocumentStatus =
   | 'PUBLISHED'
   | 'REJECTED'
   | 'ARCHIVED'
-  | 'NEEDS_REVIEW';
+  | 'NEEDS_REVIEW'
+  | 'DISPOSED';
+
+export type DispositionStatus = 'PENDING' | 'REJECTED' | 'EXECUTED' | 'CANCELLED';
+
+export interface RetentionPolicy {
+  id: string;
+  name: string;
+  description?: string | null;
+  category?: DocumentCategory | null;
+  retentionDays: number;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentDispositionSummary {
+  id: string;
+  status: DispositionStatus;
+  reason: string;
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  reviewedByName?: string | null;
+  reviewComment?: string | null;
+  reviewedAt?: string | null;
+}
+
+export interface ArchiveItem {
+  id: string;
+  kind: 'Document' | 'Template';
+  name: string;
+  code: string;
+  status?: DocumentStatus;
+  archivedBy?: string | null;
+  archivedAt?: string | null;
+  reason?: string | null;
+  size?: number | null;
+  retentionUntil?: string | null;
+  retentionPolicy?: Pick<RetentionPolicy, 'id' | 'name' | 'retentionDays'> | null;
+  legalHoldAt?: string | null;
+  legalHoldByName?: string | null;
+  legalHoldReason?: string | null;
+  disposedAt?: string | null;
+  disposition?: DocumentDispositionSummary | null;
+  canRequestDisposition?: boolean;
+  canReviewDisposition?: boolean;
+}
 
 export type DocumentCategory =
   | 'POLICIES'
@@ -37,8 +85,11 @@ export interface Department {
   color: string;
   location?: string;
   description?: string | null;
+  isActive: boolean;
+  deactivatedAt?: string | null;
+  canOpen?: boolean;
   _count?: { documents: number; users: number };
-  head?: { id: string; firstName: string; lastName: string; email: string; role: Role } | null;
+  head?: { id: string; firstName: string; lastName: string; jobTitle: string; email?: string; role: Role } | null;
   sopStats?: { active: number; total: number };
   stats?: { workflows: number; templates: number; underReview: number };
 }
@@ -46,6 +97,7 @@ export interface Department {
 export interface DocumentComment {
   id: string;
   documentId: string;
+  userId: string;
   text: string;
   status: string;
   createdAt: string;
@@ -58,10 +110,18 @@ export interface DocumentAttachment {
   id: string;
   documentId: string;
   fileName: string;
-  filePath: string;
+  /** Storage paths are never serialized by document read endpoints. */
+  filePath?: string;
   fileSize?: number | null;
   fileType?: string | null;
+  canDownload?: boolean;
+  downloadUrl?: string | null;
   createdAt: string;
+  searchIndex?: {
+    status: 'PENDING' | 'READY' | 'EMPTY' | 'FAILED' | 'UNSUPPORTED' | 'OCR_REQUIRED';
+    indexedAt?: string | null;
+    errorCode?: string | null;
+  } | null;
 }
 
 export interface User {
@@ -69,10 +129,13 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  jobTitle: string;
   role: Role;
+  /** Effective, backend-authorized capabilities for the current session. */
+  capabilities?: import('@/modules/access-control/capabilities').Capability[];
   customRole?: { id: string; name: string; baseRole: Role; permissions?: Record<string, boolean[]> } | null;
   isActive?: boolean;
-  signatureImage?: string | null;
+  hasSignature?: boolean;
   department?: Department | null;
 }
 
@@ -111,13 +174,30 @@ export interface Document {
   signaturePlacement?: string | SignaturePlacement[];
   priority?: DocumentPriority;
   content?: string | null;
+  hasFile?: boolean;
   filePath?: string | null;
   fileName?: string | null;
   fileType?: string | null;
   fileSize?: number | null;
+  searchIndex?: {
+    status: 'PENDING' | 'READY' | 'EMPTY' | 'FAILED' | 'UNSUPPORTED' | 'OCR_REQUIRED';
+    sourceFileName?: string | null;
+    indexedAt?: string | null;
+    errorCode?: string | null;
+  } | null;
+  matchedInUploadedFile?: boolean;
+  matchedInAttachment?: boolean;
+  matchedFileNames?: string[];
+  searchIndexStatus?: 'PENDING' | 'READY' | 'EMPTY' | 'FAILED' | 'UNSUPPORTED' | 'OCR_REQUIRED' | null;
+  indexedFileName?: string | null;
+  indexedAt?: string | null;
   archiveReason?: string | null;
   archivedAt?: string | null;
   archivedBy?: string | null;
+  retentionUntil?: string | null;
+  legalHoldAt?: string | null;
+  legalHoldReason?: string | null;
+  disposedAt?: string | null;
   workflowId?: string | null;
   allowDownload?: boolean;
   allowComments?: boolean;
@@ -144,7 +224,11 @@ export interface Signature {
   fullName: string;
   position: string;
   signedAt: string;
+  documentVersion?: string;
+  approvalCycle?: number;
+  docHash?: string | null;
   imagePath?: string | null;
+  hasImage?: boolean;
   placementId?: string | null;
   page?: number | null;
   user?: { firstName: string; lastName: string; role: Role };
@@ -175,7 +259,39 @@ export interface Notification {
   type: string;
   isRead: boolean;
   link?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  actionType?: string | null;
+  expiresAt?: string | null;
+  actionCompletedAt?: string | null;
+  actionCompletedByName?: string | null;
   createdAt: string;
+}
+
+export interface DepartmentLifecycleSummary {
+  id: string;
+  name: string;
+  code: string;
+  isActive: boolean;
+  deactivatedAt?: string | null;
+  dependencies: {
+    activeUsers: number;
+    openUserResponsibilities: number;
+    openDocuments: number;
+    openWorkforceRequests: number;
+    activeDocumentTemplates: number;
+    activeWorkforcePositions: number;
+    activeWorkforceTemplates: number;
+    blockingDependencies: number;
+    canDeactivate: boolean;
+  };
+}
+
+export interface MessageContact {
+  id: string;
+  firstName: string;
+  lastName: string;
+  department: Pick<Department, 'id' | 'name'> | null;
 }
 
 export type ConversationType = 'DIRECT' | 'DEPARTMENT' | 'HOTEL';
@@ -230,6 +346,11 @@ export interface AuditLog {
   entityId?: string | null;
   details?: string | null;
   ipAddress?: string | null;
+  requestId?: string | null;
+  outcome?: string;
+  reason?: string | null;
+  hasStructuredChange?: boolean;
+  severity?: 'Low' | 'Medium' | 'High';
   createdAt: string;
 }
 
@@ -265,7 +386,7 @@ export interface DashboardStats {
     action: string;
     userName?: string | null;
     createdAt: string;
-    document?: { title: string; code: string };
+    document?: { id: string; title: string; code: string };
   }[];
   upcomingReviews?: {
     id: string;
@@ -274,7 +395,32 @@ export interface DashboardStats {
     category: DocumentCategory;
     nextReviewDate: string | null;
   }[];
+  myWork?: {
+    type: 'DOCUMENT' | 'WORKFORCE';
+    id: string;
+    title: string;
+    subtitle: string;
+    status: string;
+    dueDate: string | null;
+    isOverdue: boolean;
+    action: string;
+    link: string;
+  }[];
   trend?: { month: string; created: number; published: number }[];
+}
+
+export interface NotificationOpenResult {
+  state: 'AVAILABLE' | 'COMPLETED' | 'UNAVAILABLE';
+  destination: string | null;
+  completedAt?: string | null;
+  completedByName?: string | null;
+}
+
+export interface NotificationPreferences {
+  emailEnabled: boolean;
+  inAppRequired: true;
+  browserPushAvailable: false;
+  smsAvailable: false;
 }
 
 export interface SystemSettings {
@@ -318,6 +464,7 @@ export const STATUS_LABELS: Record<DocumentStatus, string> = {
   REJECTED: 'Rejected',
   ARCHIVED: 'Archived',
   NEEDS_REVIEW: 'Needs Review',
+  DISPOSED: 'Disposed',
 };
 
 export const STATUS_COLORS: Record<DocumentStatus, string> = {
@@ -330,6 +477,7 @@ export const STATUS_COLORS: Record<DocumentStatus, string> = {
   REJECTED: 'bg-red-100 text-red-700 border-red-300',
   ARCHIVED: 'bg-slate-100 text-slate-600 border-slate-300',
   NEEDS_REVIEW: 'bg-amber-100 text-amber-700 border-amber-300',
+  DISPOSED: 'bg-slate-200 text-slate-700 border-slate-400',
 };
 
 export const CATEGORY_LABELS: Record<DocumentCategory, string> = {
@@ -369,6 +517,19 @@ export type WorkforceRequestStatus =
   | 'AWAITING_EVALUATION'
   | 'COMPLETED'
   | 'CANCELLED';
+
+export interface WorkforceSearchResult {
+  id: string;
+  code: string;
+  status: WorkforceRequestStatus;
+  department: Pick<Department, 'id' | 'name' | 'color'>;
+  services: string[];
+  vendorNames: string[];
+  quantity: number;
+  workDate: string;
+  endDate: string;
+  updatedAt: string;
+}
 
 export type WorkforceShift = 'MORNING' | 'EVENING' | 'NIGHT' | 'CUSTOM';
 export type WorkforceVendorMode = 'DIRECT' | 'BROADCAST';
@@ -572,14 +733,12 @@ export interface WorkforceRequest {
 
 export interface VendorInvite {
   id: string;
-  token: string;
   vendorId: string;
   vendor: Vendor;
   status: string;
   sentAt: string;
   respondedAt?: string | null;
   expiresAt: string;
-  portalPath: string;
 }
 
 export interface VendorInvoice {

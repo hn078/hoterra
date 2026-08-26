@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   Eye,
   MoreHorizontal,
@@ -10,7 +10,6 @@ import {
   LayoutList,
   LayoutGrid,
   Archive,
-  Printer,
   Plus,
 } from 'lucide-react';
 import {
@@ -19,12 +18,15 @@ import {
   DepartmentBadge,
 } from '@/components/layout/Sidebar';
 import { Pagination } from '@/components/ui/Pagination';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { CategoryBadge, FileTypeIcon } from '@/components/ui/Badges';
 import { api } from '@/lib/api';
 import type { Department, Document, DocumentStatus, User } from '@/types';
 import { CATEGORY_LABELS, STATUS_LABELS } from '@/types';
 import { formatDate, getInitials } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control/capabilities';
 
 const STATUS_TABS: (DocumentStatus | 'ALL')[] = [
   'ALL',
@@ -40,7 +42,8 @@ const STATUS_TABS: (DocumentStatus | 'ALL')[] = [
 const LIMIT = 10;
 
 export function DocumentsPage() {
-  const navigate = useNavigate();
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -60,11 +63,23 @@ export function DocumentsPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef<HTMLDivElement>(null);
+  const canCreate = hasCapability(currentUser, 'documents.create');
+  const canExport = hasCapability(currentUser, 'documents.export');
+  const canArchive = hasCapability(currentUser, 'documents.archive');
+  const canReadDepartments = hasCapability(currentUser, 'departments.read');
+  const canReadTemplates = hasCapability(currentUser, 'templates.read');
+  const canReadUsers = hasCapability(currentUser, 'users.directory.read');
+
+  const canArchiveDocument = (document: Document) => {
+    if (!currentUser || !canArchive || document.status === 'ARCHIVED') return false;
+    if (currentUser.role === 'SYSTEM_ADMINISTRATOR' || currentUser.role === 'GENERAL_MANAGER') return true;
+    return currentUser.role === 'HOD' && currentUser.department?.id === document.departmentId;
+  };
 
   useEffect(() => {
-    api.getDepartments().then(setDepartments).catch(console.error);
-    api.getUsers().then(setUsers).catch(console.error);
-  }, []);
+    if (canReadDepartments) api.getDepartments().then(setDepartments).catch(console.error);
+    if (canReadUsers) api.getUsers().then(setUsers).catch(console.error);
+  }, [canReadDepartments, canReadUsers]);
 
   useEffect(() => {
     setLoading(true);
@@ -106,20 +121,27 @@ export function DocumentsPage() {
   }, []);
 
   const handleExport = async () => {
+    if (!canExport) return;
     setExporting(true);
     try {
       const params: Record<string, string> = {};
-      if (activeTab !== 'ALL') params.status = activeTab;
+      const status = filterStatus || (activeTab !== 'ALL' ? activeTab : '');
+      if (status) params.status = status;
       if (search) params.search = search;
+      if (filterDept) params.departmentId = filterDept;
+      if (filterCategory) params.category = filterCategory;
+      if (filterAuthor) params.authorId = filterAuthor;
       await api.exportDocuments(params);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Export failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Export failed', { title: 'Export failed' });
     } finally {
       setExporting(false);
     }
   };
 
   const toggleSelect = (id: string) => {
+    const document = documents.find((item) => item.id === id);
+    if (!document || !canArchiveDocument(document)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -129,13 +151,22 @@ export function DocumentsPage() {
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === documents.length) setSelected(new Set());
-    else setSelected(new Set(documents.map((d) => d.id)));
+    const selectableIds = documents.filter(canArchiveDocument).map((document) => document.id);
+    if (selectableIds.length > 0 && selectableIds.every((id) => selected.has(id))) setSelected(new Set());
+    else setSelected(new Set(selectableIds));
   };
 
   const handleBulkArchive = async () => {
-    if (selected.size === 0) return alert('Select documents first');
-    if (!confirm(`Archive ${selected.size} document(s)?`)) return;
+    if (!canArchive) return;
+    if (selected.size === 0) {
+      await dialog.alert('Select documents first', { title: 'No documents selected' });
+      return;
+    }
+    if (!await dialog.confirm(`Archive ${selected.size} document(s)?`, {
+      title: 'Archive selected documents',
+      confirmLabel: 'Archive',
+      tone: 'danger',
+    })) return;
     try {
       await api.bulkArchiveDocuments([...selected]);
       setSelected(new Set());
@@ -146,17 +177,24 @@ export function DocumentsPage() {
       setDocuments(res.data);
       setTotal(res.pagination.total);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Bulk archive failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Bulk archive failed', { title: 'Archive failed' });
     }
   };
 
   const handleArchiveOne = async (id: string) => {
+    const document = documents.find((item) => item.id === id);
+    if (!document || !canArchiveDocument(document)) return;
     setOpenMenuId(null);
+    if (!await dialog.confirm(`Archive “${document.title}”?`, {
+      title: 'Archive document',
+      confirmLabel: 'Archive',
+      tone: 'danger',
+    })) return;
     try {
       await api.archiveDocument(id);
       setDocuments((prev) => prev.filter((d) => d.id !== id));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Archive failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Archive failed', { title: 'Archive failed' });
     }
   };
 
@@ -167,17 +205,19 @@ export function DocumentsPage() {
         subtitle="View, manage and control all hotel documents"
         action={
           <div className="flex items-center gap-2">
-            {selected.size > 0 && (
+            {canArchive && selected.size > 0 && (
               <button onClick={handleBulkArchive} className="btn-secondary py-2.5">
                 <Archive className="h-4 w-4" />
                 Archive ({selected.size})
               </button>
             )}
-            <button onClick={handleExport} disabled={exporting} className="btn-secondary py-2.5 disabled:opacity-50">
-              <Download className="h-4 w-4" />
-              {exporting ? 'Exporting...' : 'Export'}
-            </button>
-            <div className="relative" ref={createMenuRef}>
+            {canExport && (
+              <button onClick={handleExport} disabled={exporting} className="btn-secondary py-2.5 disabled:opacity-50">
+                <Download className="h-4 w-4" />
+                {exporting ? 'Exporting...' : 'Export'}
+              </button>
+            )}
+            {canCreate && <div className="relative" ref={createMenuRef}>
               <div className="flex">
                 <Link to="/documents/create" className="btn-primary rounded-r-none">
                   <Plus className="h-4 w-4" />
@@ -192,12 +232,12 @@ export function DocumentsPage() {
                   <Link to="/documents/create" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShowCreateMenu(false)}>
                     New Blank Document
                   </Link>
-                  <Link to="/templates" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShowCreateMenu(false)}>
+                  {canReadTemplates && <Link to="/templates" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShowCreateMenu(false)}>
                     From Template
-                  </Link>
+                  </Link>}
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         }
       />
@@ -215,13 +255,13 @@ export function DocumentsPage() {
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-          <div>
+          {canReadDepartments && <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Department</label>
             <select value={filterDept} onChange={(e) => { setFilterDept(e.target.value); setPage(1); }} className="filter-select w-full">
               <option value="">All Departments</option>
               {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
-          </div>
+          </div>}
           <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Category</label>
             <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }} className="filter-select w-full">
@@ -236,13 +276,13 @@ export function DocumentsPage() {
               {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
-          <div>
+          {canReadUsers && <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Author</label>
             <select value={filterAuthor} onChange={(e) => { setFilterAuthor(e.target.value); setPage(1); }} className="filter-select w-full">
               <option value="">All Authors</option>
               {users.map((u) => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
             </select>
-          </div>
+          </div>}
           <div className="flex items-end">
             <button
               onClick={() => { setFilterDept(''); setFilterCategory(''); setFilterAuthor(''); setFilterStatus(''); setPage(1); }}
@@ -296,7 +336,9 @@ export function DocumentsPage() {
           ) : documents.map((doc) => (
             <article key={doc.id} className="card p-4">
               <div className="flex items-start gap-3">
-                <input type="checkbox" aria-label={`Select ${doc.title}`} className="mt-1 h-5 w-5 rounded" checked={selected.has(doc.id)} onChange={() => toggleSelect(doc.id)} />
+                {canArchiveDocument(doc) && (
+                  <input type="checkbox" aria-label={`Select ${doc.title}`} className="mt-1 h-5 w-5 rounded" checked={selected.has(doc.id)} onChange={() => toggleSelect(doc.id)} />
+                )}
                 <FileTypeIcon category={doc.category} />
                 <div className="min-w-0 flex-1">
                   <Link to={`/documents/${doc.id}`} className="block font-semibold leading-5 text-hoterra-navy">{doc.title}</Link>
@@ -322,7 +364,14 @@ export function DocumentsPage() {
           <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-6 py-3">
-                <input type="checkbox" className="rounded" checked={documents.length > 0 && selected.size === documents.length} onChange={toggleSelectAll} />
+                {documents.some(canArchiveDocument) && (
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={documents.filter(canArchiveDocument).every((document) => selected.has(document.id))}
+                    onChange={toggleSelectAll}
+                  />
+                )}
               </th>
               <th className="px-4 py-3">Document Title</th>
               <th className="px-4 py-3">Document Code</th>
@@ -345,7 +394,9 @@ export function DocumentsPage() {
               documents.map((doc) => (
                 <tr key={doc.id} className="hover:bg-gray-50/80">
                   <td className="px-6 py-3">
-                    <input type="checkbox" className="rounded" checked={selected.has(doc.id)} onChange={() => toggleSelect(doc.id)} />
+                    {canArchiveDocument(doc) && (
+                      <input type="checkbox" className="rounded" checked={selected.has(doc.id)} onChange={() => toggleSelect(doc.id)} />
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -373,16 +424,13 @@ export function DocumentsPage() {
                       <Link to={`/documents/${doc.id}`} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-hoterra-steel">
                         <Eye className="h-4 w-4" />
                       </Link>
-                      <button onClick={() => setOpenMenuId(openMenuId === doc.id ? null : doc.id)} className="rounded p-1.5 text-gray-400 hover:bg-gray-100">
+                      {canArchiveDocument(doc) && <button onClick={() => setOpenMenuId(openMenuId === doc.id ? null : doc.id)} className="rounded p-1.5 text-gray-400 hover:bg-gray-100">
                         <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                      {openMenuId === doc.id && (
+                      </button>}
+                      {openMenuId === doc.id && canArchiveDocument(doc) && (
                         <div className="absolute right-0 top-full z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                           <button onClick={() => handleArchiveOne(doc.id)} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
                             <Archive className="h-4 w-4" /> Archive
-                          </button>
-                          <button onClick={() => { setOpenMenuId(null); navigate(`/documents/${doc.id}`); window.print(); }} className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                            <Printer className="h-4 w-4" /> Export
                           </button>
                         </div>
                       )}

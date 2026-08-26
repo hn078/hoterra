@@ -13,6 +13,8 @@ export function VendorPortalPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [showDecline, setShowDecline] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -26,15 +28,20 @@ export function VendorPortalPage() {
 
   const respond = async (action: 'accept' | 'decline') => {
     if (!token) return;
+    if (action === 'decline' && declineReason.trim().length < 3) {
+      setError('Please provide a short reason for declining the order.');
+      return;
+    }
     setBusy(true);
+    setError('');
     try {
       if (action === 'accept') await api.acceptVendorOrder(token);
-      else await api.declineVendorOrder(token);
+      else await api.declineVendorOrder(token, declineReason.trim());
       setDone(action === 'accept' ? 'ACCEPTED' : 'DECLINED');
       const refreshed = await api.getVendorOrder(token);
       setData(refreshed);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Response could not be submitted');
     } finally {
       setBusy(false);
     }
@@ -72,11 +79,32 @@ export function VendorPortalPage() {
               <dl className="mb-6 grid grid-cols-2 gap-3 text-sm">
                 <Item label="Hotel" value={data.order.hotelName} />
                 <Item label="Department" value={data.order.department} />
-                <Item label="Position" value={data.order.position} />
-                <Item label="Quantity" value={String(data.order.quantity)} />
-                <Item label="Date" value={formatDate(data.order.workDate)} />
-                <Item label="Shift" value={data.order.shift} />
+                <Item label="Start date" value={formatDate(data.order.startDate)} />
+                <Item label="End date" value={formatDate(data.order.endDate)} />
               </dl>
+
+              <div className="mb-6">
+                <h2 className="mb-2 text-sm font-semibold text-hoterra-navy">Service lines</h2>
+                <div className="space-y-2">
+                  {data.order.items.map((item) => (
+                    <div key={item.id} className="rounded-xl border border-gray-200 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-hoterra-navy">{item.position}</p>
+                          <p className="mt-0.5 text-xs text-gray-500">
+                            {item.quantity} staff · {item.unit || 'Contract unit'}
+                            {item.hours ? ` · ${item.hours} hours` : ''}
+                          </p>
+                        </div>
+                        <div className="text-right text-xs text-gray-500">
+                          {item.unitRate != null && <p>{money(item.unitRate, item.currency)} / unit</p>}
+                          {item.estimatedCost != null && <p className="mt-1 font-semibold text-hoterra-navy">{money(item.estimatedCost, item.currency)}</p>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               {data.order.comment && (
                 <p className="mb-6 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
@@ -90,7 +118,20 @@ export function VendorPortalPage() {
               </div>
 
               {data.canRespond ? (
-                <div className="flex gap-2">
+                <div>
+                  {showDecline && (
+                    <div className="mb-3 rounded-xl border border-red-100 bg-red-50 p-3">
+                      <label className="mb-1 block text-xs font-medium text-red-800">Reason for declining</label>
+                      <textarea
+                        rows={3}
+                        maxLength={2000}
+                        value={declineReason}
+                        onChange={(event) => setDeclineReason(event.target.value)}
+                        className="w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
                   <button
                     disabled={busy}
                     onClick={() => respond('accept')}
@@ -101,12 +142,14 @@ export function VendorPortalPage() {
                   </button>
                   <button
                     disabled={busy}
-                    onClick={() => respond('decline')}
+                    onClick={() => showDecline ? respond('decline') : setShowDecline(true)}
                     className="btn-secondary flex-1 justify-center text-red-600 disabled:opacity-50"
                   >
                     <X className="h-4 w-4" />
-                    Decline
+                    {showDecline ? 'Confirm decline' : 'Decline'}
                   </button>
+                  {showDecline && <button disabled={busy} onClick={() => { setShowDecline(false); setDeclineReason(''); }} className="btn-secondary justify-center">Cancel</button>}
+                  </div>
                 </div>
               ) : (
                 <p className="rounded-lg bg-gray-50 px-3 py-2 text-center text-sm text-gray-600">
@@ -119,6 +162,10 @@ export function VendorPortalPage() {
       </div>
     </div>
   );
+}
+
+function money(value: number, currency: string) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'AZN' }).format(value);
 }
 
 function Item({ label, value }: { label: string; value: string }) {

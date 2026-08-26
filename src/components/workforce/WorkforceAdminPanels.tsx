@@ -3,18 +3,24 @@ import { api } from '@/lib/api';
 import type { Department, Role, VendorInvoice, WorkforceApprovalStep, WorkforceMeta } from '@/types';
 import { ROLE_LABELS } from '@/types';
 import { formatDate } from '@/lib/utils';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function RoutesEditorPanel({
   meta,
   departments,
+  canManageRoutes,
+  canManageBudget,
   onSaved,
 }: {
   meta: WorkforceMeta;
   departments: Department[];
+  canManageRoutes: boolean;
+  canManageBudget: boolean;
   onSaved: () => void;
 }) {
+  const dialog = useAppDialog();
   const humanResourcesDepartment = departments.find((department) => department.code === 'HR' || department.name === 'Human Resources');
   const defaultSteps = (): WorkforceApprovalStep[] => [
     { role: 'HOD', label: 'Requesting department — Head of Department' },
@@ -77,17 +83,19 @@ export function RoutesEditorPanel({
     if (!deptId || steps.length === 0) return;
     setSaving(true);
     try {
-      await api.upsertWorkforceRoute(deptId, { name, steps });
+      if (canManageRoutes) await api.upsertWorkforceRoute(deptId, { name, steps });
       const now = new Date();
-      await api.upsertWorkforceBudget({
-        departmentId: deptId,
-        year: now.getFullYear(),
-        month: now.getMonth() + 1,
-        budgetAmount: Number(budgetAmount) || 0,
-      });
+      if (canManageBudget) {
+        await api.upsertWorkforceBudget({
+          departmentId: deptId,
+          year: now.getFullYear(),
+          month: now.getMonth() + 1,
+          budgetAmount: Number(budgetAmount) || 0,
+        });
+      }
       onSaved();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Save failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Save failed', { title: 'Route not saved' });
     } finally {
       setSaving(false);
     }
@@ -95,7 +103,7 @@ export function RoutesEditorPanel({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">Choose approvers from the active-user list. Every route includes Human Resources Head of Department before Finance Director.</p>
+      <p className="text-sm text-gray-500">{canManageRoutes ? 'Choose approvers from the active-user list. Every route includes Human Resources Head of Department before Finance Director.' : 'Set the monthly casual workforce budget for each department.'}</p>
       <div className="card space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
@@ -110,17 +118,17 @@ export function RoutesEditorPanel({
               ))}
             </select>
           </label>
-          <label className="text-sm">
+          {canManageRoutes && <label className="text-sm">
             <span className="mb-1 block text-xs text-gray-500">Route name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
-          </label>
+          </label>}
         </div>
 
-        <div className="space-y-2">
+        {canManageRoutes && <div className="space-y-2">
           {steps.map((step, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2">
               <span className="w-6 text-xs text-gray-400">{i + 1}.</span>
@@ -160,9 +168,9 @@ export function RoutesEditorPanel({
           >
             Add step
           </button>
-        </div>
+        </div>}
 
-        <label className="block text-sm">
+        {canManageBudget && <label className="block text-sm">
           <span className="mb-1 block text-xs text-gray-500">
             This month casual budget (AZN)
           </span>
@@ -172,14 +180,14 @@ export function RoutesEditorPanel({
             onChange={(e) => setBudgetAmount(e.target.value)}
             className="w-full max-w-xs rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
-        </label>
+        </label>}
 
         <button onClick={saveRoute} disabled={saving} className="btn-primary disabled:opacity-50">
-          {saving ? 'Saving…' : 'Save route & budget'}
+          {saving ? 'Saving…' : canManageRoutes && canManageBudget ? 'Save route & budget' : canManageRoutes ? 'Save route' : 'Save budget'}
         </button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
+      {canManageRoutes && <div className="grid gap-3 md:grid-cols-2">
         {meta.routes.map((route) => (
           <div key={route.id} className="card p-4">
             <div className="font-medium text-hoterra-navy">{route.name}</div>
@@ -193,12 +201,21 @@ export function RoutesEditorPanel({
             </ol>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }
 
-export function SettingsPanel({ meta, onSaved }: { meta: WorkforceMeta; onSaved: () => void }) {
+export function SettingsPanel({
+  meta,
+  canViewOutbox,
+  onSaved,
+}: {
+  meta: WorkforceMeta;
+  canViewOutbox: boolean;
+  onSaved: () => void;
+}) {
+  const dialog = useAppDialog();
   const [hotels, setHotels] = useState((meta.settings.hotels || [meta.settings.hotelName]).join(', '));
   const [minLeadHours, setMinLeadHours] = useState(String(meta.settings.minLeadHours));
   const [rate, setRate] = useState(String(meta.settings.estimatedHourlyRate));
@@ -211,8 +228,8 @@ export function SettingsPanel({ meta, onSaved }: { meta: WorkforceMeta; onSaved:
   >([]);
 
   useEffect(() => {
-    api.getWorkforceOutbox().then(setOutbox).catch(() => setOutbox([]));
-  }, []);
+    if (canViewOutbox) api.getWorkforceOutbox().then(setOutbox).catch(() => setOutbox([]));
+  }, [canViewOutbox]);
 
   const save = async () => {
     try {
@@ -226,9 +243,9 @@ export function SettingsPanel({ meta, onSaved }: { meta: WorkforceMeta; onSaved:
         notifyPush,
       });
       onSaved();
-      alert('Settings saved');
+      await dialog.alert('Workforce settings saved', { title: 'Saved' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed', { title: 'Settings not saved' });
     }
   };
 
@@ -269,7 +286,7 @@ export function SettingsPanel({ meta, onSaved }: { meta: WorkforceMeta; onSaved:
         <button onClick={save} className="btn-primary">Save settings</button>
       </div>
 
-      <div className="card p-5">
+      {canViewOutbox && <div className="card p-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-hoterra-navy">Email outbox</h3>
           <button
@@ -288,7 +305,7 @@ export function SettingsPanel({ meta, onSaved }: { meta: WorkforceMeta; onSaved:
           ))}
           {outbox.length === 0 && <li className="text-gray-400">No emails yet</li>}
         </ul>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -298,6 +315,7 @@ export function PayrollPanel({
 }: {
   completedRequestIds: { id: string; code: string; vendors: { id: string; name: string }[] }[];
 }) {
+  const dialog = useAppDialog();
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
   const [form, setForm] = useState({
     requestId: '',
@@ -324,7 +342,29 @@ export function PayrollPanel({
       setForm({ requestId: '', vendorId: '', invoiceNumber: '', invoiceHours: '', invoiceAmount: '' });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed', { title: 'Invoice not registered' });
+    }
+  };
+
+  const matchInvoice = async (invoice: VendorInvoice) => {
+    try {
+      await api.matchWorkforceInvoice(invoice.id);
+      load();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Invoice could not be matched', { title: 'Matching failed' });
+    }
+  };
+
+  const markInvoicePaid = async (invoice: VendorInvoice) => {
+    if (!await dialog.confirm(`Mark invoice “${invoice.invoiceNumber}” as paid?`, {
+      title: 'Confirm payment',
+      confirmLabel: 'Mark paid',
+    })) return;
+    try {
+      await api.markWorkforceInvoicePaid(invoice.id);
+      load();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Invoice could not be marked paid', { title: 'Payment update failed' });
     }
   };
 
@@ -405,9 +445,7 @@ export function PayrollPanel({
                   {inv.status === 'PENDING' || inv.status === 'MISMATCH' ? (
                     <button
                       className="text-xs text-hoterra-steel hover:underline"
-                      onClick={() =>
-                        api.matchWorkforceInvoice(inv.id).then(load).catch((e) => alert(e.message))
-                      }
+                      onClick={() => void matchInvoice(inv)}
                     >
                       Match vs actuals
                     </button>
@@ -415,9 +453,7 @@ export function PayrollPanel({
                   {inv.status === 'MATCHED' && (
                     <button
                       className="ml-2 text-xs text-green-700 hover:underline"
-                      onClick={() =>
-                        api.markWorkforceInvoicePaid(inv.id).then(load).catch((e) => alert(e.message))
-                      }
+                      onClick={() => void markInvoicePaid(inv)}
                     >
                       Mark paid
                     </button>
@@ -441,31 +477,57 @@ export function PayrollPanel({
 
 export function TemplatesPanel({
   meta,
+  canManageRecurring,
   onUse,
   onSaved,
 }: {
   meta: WorkforceMeta;
+  canManageRecurring: boolean;
   onUse: (id: string) => void;
   onSaved: () => void;
 }) {
+  const dialog = useAppDialog();
+
+  const runRecurring = async () => {
+    if (!await dialog.confirm('Generate every workforce request template that is due today?', {
+      title: 'Run recurring requests',
+      confirmLabel: 'Run now',
+    })) return;
+    try {
+      const result = await api.runWorkforceRecurring();
+      await dialog.alert(result.created.length ? `Created: ${result.created.join(', ')}` : 'No templates are due today', {
+        title: result.created.length ? 'Requests created' : 'Nothing to generate',
+      });
+      onSaved();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Recurring requests could not be generated', { title: 'Automation failed' });
+    }
+  };
+
+  const toggleRecurring = async (template: WorkforceMeta['templates'][number]) => {
+    const action = template.isRecurring ? 'stop automatic generation for' : 'enable automatic generation for';
+    if (!await dialog.confirm(`Do you want to ${action} “${template.name}”?`, {
+      title: template.isRecurring ? 'Stop recurring template' : 'Enable recurring template',
+      confirmLabel: template.isRecurring ? 'Stop auto' : 'Enable auto',
+    })) return;
+    try {
+      await api.updateWorkforceTemplate(template.id, { isRecurring: !template.isRecurring });
+      onSaved();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Template could not be updated', { title: 'Update failed' });
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      {canManageRecurring && <div className="flex justify-end">
         <button
           className="btn-secondary"
-          onClick={() =>
-            api
-              .runWorkforceRecurring()
-              .then((r) => {
-                alert(r.created.length ? `Created: ${r.created.join(', ')}` : 'No templates due today');
-                onSaved();
-              })
-              .catch((e) => alert(e.message))
-          }
+          onClick={() => void runRecurring()}
         >
           Run recurring now
         </button>
-      </div>
+      </div>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {meta.templates.map((t) => (
           <div key={t.id} className="card p-5">
@@ -489,17 +551,12 @@ export function TemplatesPanel({
               <button onClick={() => onUse(t.id)} className="btn-secondary flex-1 justify-center">
                 Use
               </button>
-              <button
+              {canManageRecurring && <button
                 className="btn-secondary"
-                onClick={() =>
-                  api
-                    .updateWorkforceTemplate(t.id, { isRecurring: !t.isRecurring })
-                    .then(onSaved)
-                    .catch((e) => alert(e.message))
-                }
+                onClick={() => void toggleRecurring(t)}
               >
                 {t.isRecurring ? 'Stop auto' : 'Make auto'}
-              </button>
+              </button>}
             </div>
           </div>
         ))}

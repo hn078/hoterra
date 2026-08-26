@@ -12,15 +12,18 @@ import { Header, DepartmentBadge, StatusBadge } from '@/components/layout/Sideba
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
 import type { Department, Document, Template, User, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
 import { countWorkflowSteps, WORKFLOW_STATUS_LABELS } from '@/lib/workflows';
 import { formatDate } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 type DepartmentDetail = Department & {
-  users: User[];
+  users: Array<Omit<User, 'email'> & { email?: string }>;
   documents: Document[];
   workflowList?: WorkflowItem[];
   templateList?: Template[];
@@ -36,8 +39,15 @@ const TABS = [
 ];
 
 export function DepartmentDetailPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
+  const canManageDepartments = hasCapability(currentUser, 'departments.manage');
+  const canManageTemplates = hasCapability(currentUser, 'templates.manage');
+  const canManageWorkflows = hasCapability(currentUser, 'workflows.manage');
+  const canReadUserDirectory = hasCapability(currentUser, 'users.directory.read');
   const { id } = useParams<{ id: string }>();
   const [dept, setDept] = useState<DepartmentDetail | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', location: '', description: '', color: '' });
@@ -45,7 +55,12 @@ export function DepartmentDetailPage() {
 
   useEffect(() => {
     if (id) {
-      api.getDepartment(id).then(setDept).catch(console.error);
+      setLoadError('');
+      api.getDepartment(id)
+        .then(setDept)
+        .catch((error) => setLoadError(error instanceof Error ? error.message : 'Department could not be loaded'));
+    } else {
+      setLoadError('Department not found');
     }
   }, [id]);
 
@@ -69,7 +84,7 @@ export function DepartmentDetailPage() {
       setDept((prev) => (prev ? { ...prev, ...updated } : prev));
       setShowEditModal(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update department');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to update department', { title: 'Department not updated' });
     } finally {
       setSaving(false);
     }
@@ -78,7 +93,11 @@ export function DepartmentDetailPage() {
   if (!dept) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-gray-500">Loading department...</p>
+        {loadError ? <div className="max-w-md px-6 text-center">
+          <p className="font-medium text-hoterra-navy">Department unavailable</p>
+          <p className="mt-2 text-sm text-gray-500">{loadError}</p>
+          <Link to="/departments" className="btn-secondary mt-4 min-h-11 justify-center">Back to departments</Link>
+        </div> : <p className="text-gray-500">Loading department...</p>}
       </div>
     );
   }
@@ -94,7 +113,7 @@ export function DepartmentDetailPage() {
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header title={dept.name} subtitle={`Department · ${dept.code}`} />
 
-      <div className="border-b border-gray-200 bg-white px-6 pb-4 pt-2">
+      <div className="border-b border-gray-200 bg-white px-4 pb-4 pt-2 sm:px-6">
         <Breadcrumbs
           items={[
             { label: 'Departments', to: '/departments' },
@@ -108,6 +127,7 @@ export function DepartmentDetailPage() {
               <DepartmentBadge name={dept.code} color={dept.color} />
               <div>
                 <h2 className="text-lg font-bold text-hoterra-navy">{dept.name}</h2>
+                {!dept.isActive && <span className="mt-1 inline-flex rounded-full bg-gray-200 px-2 py-1 text-xs font-medium text-gray-700">Inactive department</span>}
                 <p className="mt-1 max-w-xl text-sm text-gray-600">{dept.description ?? dept.name}</p>
                 <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
                   <span className="flex items-center gap-1.5">
@@ -118,9 +138,9 @@ export function DepartmentDetailPage() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button onClick={openEditModal} className="btn-secondary py-2 text-sm">Edit Department</button>
-            </div>
+            {canManageDepartments && <div className="flex gap-2">
+              <button onClick={openEditModal} className="btn-secondary min-h-11 justify-center py-2 text-sm">Edit Department</button>
+            </div>}
             {head && (
               <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-4 py-3">
                 <UserAvatar firstName={head.firstName} lastName={head.lastName} size="md" />
@@ -129,13 +149,17 @@ export function DepartmentDetailPage() {
                   <p className="text-sm font-medium text-hoterra-navy">
                     {head.firstName} {head.lastName}
                   </p>
-                  <p className="text-xs text-gray-500">{ROLE_LABELS[head.role]}</p>
+                  <p className="text-xs text-gray-500">{head.jobTitle || ROLE_LABELS[head.role]}</p>
                 </div>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {!dept.isActive && <div className="border-b border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 sm:px-6">
+        This department is inactive. Historical records remain readable, but new users, documents, templates and Workforce configuration cannot be assigned to it.
+      </div>}
 
       <div className="page-stats page-stats--tabs">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -150,27 +174,32 @@ export function DepartmentDetailPage() {
 
       <PageTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
-      <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
+      <div className="flex-1 overflow-y-auto bg-hoterra-page p-4 sm:p-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Widget title="Team Members" icon={Users} action={`${userCount} total`}>
               <div className="space-y-2">
-                {dept.users.slice(0, 5).map((u) => (
-                  <Link
-                    key={u.id}
-                    to={`/users/${u.id}`}
-                    className="flex items-center gap-3 rounded-lg p-2 hover:bg-gray-50"
-                  >
+                {dept.users.slice(0, 5).map((u) => {
+                  const content = <>
                     <UserAvatar firstName={u.firstName} lastName={u.lastName} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-gray-800">
                         {u.firstName} {u.lastName}
                       </p>
-                      <p className="text-xs text-gray-500">{ROLE_LABELS[u.role]}</p>
+                      <p className="text-xs text-gray-500">{u.jobTitle || ROLE_LABELS[u.role]}</p>
                     </div>
-                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-gray-300" />
-                  </Link>
-                ))}
+                    {canReadUserDirectory && <ExternalLink className="h-3.5 w-3.5 shrink-0 text-gray-300" />}
+                  </>;
+                  return canReadUserDirectory ? (
+                    <Link key={u.id} to={`/users/${u.id}`} className="flex min-h-11 items-center gap-3 rounded-lg p-2 hover:bg-gray-50">
+                      {content}
+                    </Link>
+                  ) : (
+                    <div key={u.id} className="flex min-h-11 items-center gap-3 rounded-lg p-2">
+                      {content}
+                    </div>
+                  );
+                })}
               </div>
             </Widget>
 
@@ -217,12 +246,8 @@ export function DepartmentDetailPage() {
 
             <Widget title="Workflows" icon={GitBranch}>
               <div className="space-y-2">
-                {(dept.workflowList ?? []).slice(0, 4).map((wf) => (
-                  <Link
-                    key={wf.id}
-                    to={`/workflows/${wf.id}/designer`}
-                    className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
-                  >
+                {(dept.workflowList ?? []).slice(0, 4).map((wf) => {
+                  const content = <>
                     <div>
                       <p className="text-sm font-medium text-gray-800">{wf.name}</p>
                       <p className="text-xs text-gray-500">{countWorkflowSteps(wf.steps)} steps</p>
@@ -232,8 +257,13 @@ export function DepartmentDetailPage() {
                     }`}>
                       {wf.isDefault ? 'Default' : WORKFLOW_STATUS_LABELS[wf.status ?? 'DRAFT']}
                     </span>
-                  </Link>
-                ))}
+                  </>;
+                  return canManageWorkflows ? (
+                    <Link key={wf.id} to={`/workflows/${wf.id}/designer`} className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50">{content}</Link>
+                  ) : (
+                    <div key={wf.id} className="flex items-center justify-between rounded-lg border border-gray-100 p-3">{content}</div>
+                  );
+                })}
                 {(dept.workflowList ?? []).length === 0 && (
                   <p className="py-4 text-center text-sm text-gray-400">No workflows</p>
                 )}
@@ -243,8 +273,8 @@ export function DepartmentDetailPage() {
         )}
 
         {activeTab === 'users' && (
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <table className="w-full min-w-[620px] text-sm">
               <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">User</th>
@@ -256,15 +286,21 @@ export function DepartmentDetailPage() {
                 {dept.users.map((u) => (
                   <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <Link to={`/users/${u.id}`} className="flex items-center gap-2">
+                      {canReadUserDirectory ? <Link to={`/users/${u.id}`} className="flex items-center gap-2">
                         <UserAvatar firstName={u.firstName} lastName={u.lastName} size="sm" />
                         <span className="font-medium text-hoterra-navy">
                           {u.firstName} {u.lastName}
                         </span>
-                      </Link>
+                      </Link> : <div className="flex items-center gap-2">
+                        <UserAvatar firstName={u.firstName} lastName={u.lastName} size="sm" />
+                        <span className="font-medium text-hoterra-navy">{u.firstName} {u.lastName}</span>
+                      </div>}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{ROLE_LABELS[u.role]}</td>
-                    <td className="px-4 py-3 text-gray-500">{u.email}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      <p>{u.jobTitle || ROLE_LABELS[u.role]}</p>
+                      {u.jobTitle && <p className="mt-0.5 text-xs text-gray-400">Access: {ROLE_LABELS[u.role]}</p>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{u.email ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -281,8 +317,8 @@ export function DepartmentDetailPage() {
         )}
 
         {activeTab === 'workflows' && (
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <table className="w-full min-w-[620px] text-sm">
               <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">Workflow</th>
@@ -298,7 +334,7 @@ export function DepartmentDetailPage() {
                     <td className="px-4 py-3 text-gray-600">{countWorkflowSteps(wf.steps)}</td>
                     <td className="px-4 py-3">{wf.isDefault ? 'Yes' : 'No'}</td>
                     <td className="px-4 py-3">
-                      <Link to={`/workflows/${wf.id}/designer`} className="text-hoterra-steel hover:underline">Design →</Link>
+                      {canManageWorkflows ? <Link to={`/workflows/${wf.id}/designer`} className="text-hoterra-steel hover:underline">Design →</Link> : <span className="text-gray-400">View only</span>}
                     </td>
                   </tr>
                 ))}
@@ -311,8 +347,8 @@ export function DepartmentDetailPage() {
         )}
 
         {activeTab === 'templates' && (
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <table className="w-full min-w-[620px] text-sm">
               <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">Template</th>
@@ -328,7 +364,7 @@ export function DepartmentDetailPage() {
                     <td className="px-4 py-3 text-gray-600">{CATEGORY_LABELS[t.category]}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{t.version ?? '1.0'}</td>
                     <td className="px-4 py-3">
-                      <Link to={`/templates/${t.id}/edit`} className="text-hoterra-steel hover:underline">Edit →</Link>
+                      {canManageTemplates ? <Link to={`/templates/${t.id}/edit`} className="text-hoterra-steel hover:underline">Edit →</Link> : <span className="text-gray-400">View only</span>}
                     </td>
                   </tr>
                 ))}
@@ -341,9 +377,9 @@ export function DepartmentDetailPage() {
         )}
       </div>
 
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+      {showEditModal && canManageDepartments && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:max-w-md sm:rounded-xl sm:p-6">
             <h2 className="mb-4 text-lg font-bold text-hoterra-navy">Edit Department</h2>
             <form onSubmit={handleSaveDepartment} className="space-y-4">
               <div>
@@ -408,8 +444,8 @@ function DocList({ docs, empty }: { docs: Document[]; empty: string }) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white">
-      <table className="w-full text-sm">
+    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <table className="w-full min-w-[720px] text-sm">
         <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
           <tr>
             <th className="px-4 py-3 font-medium">Title</th>

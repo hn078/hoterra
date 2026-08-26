@@ -14,6 +14,7 @@ import {
 import { Header } from '@/components/layout/Sidebar';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { Pagination } from '@/components/ui/Pagination';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import type { AuditLog, Department, Template, User } from '@/types';
 import { CATEGORY_LABELS } from '@/types';
@@ -25,6 +26,8 @@ import {
 } from '@/data/mock';
 import { formatDateTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 const SEVERITY_STYLE: Record<string, string> = {
   Low: 'bg-gray-100 text-gray-600',
@@ -108,6 +111,12 @@ function apiParamsFromFilters(filters: AuditFilters, page: number, limit: number
 }
 
 export function AuditLogPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
+  const canExport = hasCapability(currentUser, 'audit.export');
+  const canReadDepartments = hasCapability(currentUser, 'departments.read');
+  const canReadUsers = hasCapability(currentUser, 'users.directory.read');
+  const canReadTemplates = hasCapability(currentUser, 'templates.read');
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<AuditFilters>(() => filtersFromParams(searchParams));
   const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
@@ -116,21 +125,34 @@ export function AuditLogPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState({ today: 0, highSeverity: 0, activeUsers: 0 });
+  const [integrity, setIntegrity] = useState<Awaited<ReturnType<typeof api.verifyAuditIntegrity>> | null>(null);
+  const [integrityError, setIntegrityError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingEvidence, setExportingEvidence] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
 
   useEffect(() => {
-    Promise.all([api.getDepartments(), api.getUsers(), api.getTemplates()])
+    api.verifyAuditIntegrity()
+      .then((result) => { setIntegrity(result); setIntegrityError(false); })
+      .catch(() => setIntegrityError(true));
+  }, []);
+
+  useEffect(() => {
+    Promise.all([
+      canReadDepartments ? api.getDepartments() : Promise.resolve([] as Department[]),
+      canReadUsers ? api.getUsers() : Promise.resolve([] as User[]),
+      canReadTemplates ? api.getTemplates() : Promise.resolve([] as Template[]),
+    ])
       .then(([depts, usrs, tmpls]) => {
         setDepartments(depts);
         setUsers(usrs);
         setTemplates(tmpls);
       })
       .catch(console.error);
-  }, []);
+  }, [canReadDepartments, canReadTemplates, canReadUsers]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(filters.search), 300);
@@ -198,7 +220,7 @@ export function AuditLogPage() {
     () =>
       logs.map((log) => ({
         ...log,
-        mapped: mapAuditAction(log.action),
+        mapped: { ...mapAuditAction(log.action, log.entityType), ...(log.severity ? { severity: log.severity } : {}) },
         resource: log.entityType
           ? `${log.entityType}${log.entityId ? ` #${log.entityId.slice(0, 8)}` : ''}`
           : '—',
@@ -214,9 +236,21 @@ export function AuditLogPage() {
       const { page: _p, limit: _l, ...exportParams } = apiParamsFromFilters(queryFilters, page, limit);
       await api.exportAuditLogs(exportParams);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Export failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Export failed', { title: 'Audit export failed' });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleEvidenceExport = async () => {
+    setExportingEvidence(true);
+    try {
+      const { page: _p, limit: _l, ...exportParams } = apiParamsFromFilters(queryFilters, page, limit);
+      await api.exportAuditEvidence(exportParams);
+    } catch (err) {
+      await dialog.alert(err instanceof Error ? err.message : 'Evidence export failed', { title: 'Audit evidence export failed' });
+    } finally {
+      setExportingEvidence(false);
     }
   };
 
@@ -230,15 +264,40 @@ export function AuditLogPage() {
       <Header
         title="Audit Log"
         subtitle="Track all system activity, security events and document actions"
-        action={
-          <button onClick={handleExport} disabled={exporting} className="btn-secondary disabled:opacity-50">
-            <Download className="h-4 w-4" />
-            {exporting ? 'Exporting...' : 'Export Log'}
-          </button>
-        }
+        action={canExport ?
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleEvidenceExport} disabled={exportingEvidence} className="btn-secondary disabled:opacity-50">
+              <Shield className="h-4 w-4" />
+              {exportingEvidence ? 'Preparing...' : 'Export Evidence'}
+            </button>
+            <button onClick={handleExport} disabled={exporting} className="btn-secondary disabled:opacity-50">
+              <Download className="h-4 w-4" />
+              {exporting ? 'Exporting...' : 'Export CSV'}
+            </button>
+          </div>
+        : undefined}
       />
 
       <div className="page-stats">
+        <div className={cn(
+          'mb-4 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm',
+          integrity?.status === 'VERIFIED' ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : integrity?.status === 'BROKEN' || integrityError ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-gray-200 bg-white text-gray-600',
+        )}>
+          <Shield className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">
+              {integrity?.status === 'VERIFIED' ? 'Audit evidence chain verified'
+                : integrity?.status === 'BROKEN' ? 'Audit evidence integrity failure'
+                  : integrityError ? 'Audit integrity verification unavailable' : 'Verifying audit evidence chain…'}
+            </p>
+            {integrity && <p className="text-xs opacity-80">
+              {integrity.total} append-only event(s) checked through sequence #{integrity.lastSequence}
+              {integrity.anchor ? ` · anchor ${integrity.anchor.slice(0, 12)}…` : ''}
+            </p>}
+          </div>
+        </div>
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <DashStatCard label="Total Events" value={total} icon={ScrollText} iconColor="text-blue-600" iconBg="bg-blue-50" />
           <DashStatCard label="Today's Activity" value={summary.today} icon={Activity} iconColor="text-green-600" iconBg="bg-green-50" />
@@ -252,7 +311,7 @@ export function AuditLogPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
-            placeholder="Search user, action, details or IP..."
+            placeholder="Search user, action, details, IP or request ID..."
             value={filters.search}
             onChange={(e) => updateFilter('search', e.target.value)}
             className="w-full rounded-lg border border-gray-200 py-2.5 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
@@ -260,7 +319,7 @@ export function AuditLogPage() {
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-          <div>
+          {canReadUsers && <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">User</label>
             <select value={filters.userId} onChange={(e) => updateFilter('userId', e.target.value)} className="filter-select w-full">
               <option value="">All Users</option>
@@ -270,7 +329,7 @@ export function AuditLogPage() {
                 </option>
               ))}
             </select>
-          </div>
+          </div>}
           <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Action</label>
             <select value={filters.action} onChange={(e) => updateFilter('action', e.target.value)} className="filter-select w-full">
@@ -304,7 +363,7 @@ export function AuditLogPage() {
               ))}
             </select>
           </div>
-          <div>
+          {canReadDepartments && <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Department</label>
             <select value={filters.departmentId} onChange={(e) => updateFilter('departmentId', e.target.value)} className="filter-select w-full">
               <option value="">All Departments</option>
@@ -314,8 +373,8 @@ export function AuditLogPage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div>
+          </div>}
+          {canReadTemplates && <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Template</label>
             <select value={filters.templateId} onChange={(e) => updateFilter('templateId', e.target.value)} className="filter-select w-full">
               <option value="">All Templates</option>
@@ -325,7 +384,7 @@ export function AuditLogPage() {
                 </option>
               ))}
             </select>
-          </div>
+          </div>}
           <div>
             <label className="mb-1 block text-[10px] font-medium uppercase text-gray-400">Module</label>
             <select value={filters.module} onChange={(e) => updateFilter('module', e.target.value)} className="filter-select w-full">
@@ -417,7 +476,7 @@ export function AuditLogPage() {
       </div>
 
       <div className="flex-1 overflow-auto bg-white">
-        <table className="w-full min-w-[1200px] text-sm">
+        <table className="w-full min-w-[1440px] text-sm">
           <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-6 py-3">Time</th>
@@ -427,19 +486,21 @@ export function AuditLogPage() {
               <th className="px-4 py-3">Resource</th>
               <th className="px-4 py-3">Details</th>
               <th className="px-4 py-3">IP Address</th>
+              <th className="px-4 py-3">Request ID</th>
+              <th className="px-4 py-3">Outcome</th>
               <th className="px-4 py-3">Severity</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                   Loading audit log...
                 </td>
               </tr>
             ) : enriched.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                   No audit events found
                 </td>
               </tr>
@@ -471,6 +532,19 @@ export function AuditLogPage() {
                     {log.details ?? '—'}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500">{log.ipAddress ?? '—'}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-500" title={log.requestId ?? undefined}>
+                    {log.requestId ? `${log.requestId.slice(0, 8)}…` : 'Background'}
+                  </td>
+                  <td className="px-4 py-3" title={log.reason ?? undefined}>
+                    <span className={cn(
+                      'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+                      log.outcome === 'FAILURE' || log.outcome === 'DENIED'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-emerald-100 text-emerald-700',
+                    )}>
+                      {log.outcome ?? 'SUCCESS'}{log.hasStructuredChange ? ' · Diff' : ''}
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     <span
                       className={cn(

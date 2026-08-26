@@ -30,6 +30,7 @@ import { Header, DepartmentBadge } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { DashStatCard } from '@/components/ui/DashStatCard';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import { formatDate, cn } from '@/lib/utils';
 import type {
@@ -45,6 +46,7 @@ import type {
   VendorServiceRate,
 } from '@/types';
 import { useAuthStore } from '@/store/auth';
+import { hasCapability, type Capability } from '@/modules/access-control';
 import {
   WORKFORCE_STATUS_COLORS,
   WORKFORCE_STATUS_LABELS,
@@ -57,13 +59,13 @@ import {
 } from '@/components/workforce/WorkforceAdminPanels';
 
 const TABS = [
-  { id: 'requests', label: 'Requests' },
-  { id: 'catalog', label: 'Catalog' },
-  { id: 'routes', label: 'Approval Routes' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'payroll', label: 'Payroll' },
-  { id: 'reports', label: 'Reports' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'requests', label: 'Requests', capability: 'workforce.read' },
+  { id: 'catalog', label: 'Catalog', capability: 'workforce.read' },
+  { id: 'routes', label: 'Approval Routes', capability: 'workforce.routes.manage' },
+  { id: 'templates', label: 'Templates', capability: 'workforce.templates.manage' },
+  { id: 'payroll', label: 'Payroll', capability: 'workforce.invoice.manage' },
+  { id: 'reports', label: 'Reports', capability: 'workforce.reports.read' },
+  { id: 'settings', label: 'Settings', capability: 'workforce.settings.manage' },
 ];
 
 const REPORT_MONTHS = [
@@ -90,11 +92,14 @@ export function WorkforcePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const isProcurementUser = user?.department?.code === 'PR';
-  const visibleTabs = useMemo(() => TABS.filter((item) => {
-    if (isProcurementUser || ['SYSTEM_ADMINISTRATOR', 'GENERAL_MANAGER', 'FINANCE_DIRECTOR'].includes(user?.role || '')) return true;
-    return item.id === 'requests' || item.id === 'templates' || item.id === 'reports';
-  }), [isProcurementUser, user?.role]);
+  const dialog = useAppDialog();
+  const canManageCatalog = hasCapability(user, 'workforce.vendor.manage');
+  const visibleTabs = useMemo(
+    () => TABS.filter((item) => item.id === 'routes'
+      ? hasCapability(user, 'workforce.routes.manage') || hasCapability(user, 'workforce.budget.manage')
+      : hasCapability(user, item.capability as Capability)),
+    [user],
+  );
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'requests');
   const [requests, setRequests] = useState<WorkforceRequest[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -153,7 +158,7 @@ export function WorkforcePage() {
     setReportLoading(true);
     api.getWorkforceReport(reportPeriod)
       .then(setReport)
-      .catch((error) => alert(error.message))
+      .catch((error) => void dialog.alert(error instanceof Error ? error.message : 'Report could not be loaded', { title: 'Report failed' }))
       .finally(() => setReportLoading(false));
   };
 
@@ -311,7 +316,7 @@ export function WorkforcePage() {
       setShowCreate(false);
       navigate(`/workforce/${created.id}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create request');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to create request', { title: 'Request not created' });
     } finally {
       setCreating(false);
     }
@@ -324,7 +329,7 @@ export function WorkforcePage() {
       setNewPosition('');
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add position');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to add position', { title: 'Position not added' });
     }
   };
 
@@ -335,7 +340,7 @@ export function WorkforcePage() {
       setNewVendor({ name: '', contactEmail: '', phone: '', insuranceNotes: 'Indemnity and liability insurance; staff medical check every 6 months; mandatory health insurance.' });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add vendor');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to add vendor', { title: 'Vendor not created' });
     }
   };
 
@@ -345,7 +350,7 @@ export function WorkforcePage() {
       await api.createWorkforceRate({ ...newRate, price: Number(newRate.price), currency: 'AZN', uom: 'Each' });
       setNewRate((rate) => ({ ...rate, price: '', requirements: '' }));
       load();
-    } catch (err) { alert(err instanceof Error ? err.message : 'Failed to save rate'); }
+    } catch (err) { await dialog.alert(err instanceof Error ? err.message : 'Failed to save rate', { title: 'Rate not saved' }); }
   };
 
   const unitLabel = (unit: WorkforceRateUnit) => unit === 'HOURLY' ? 'Hourly' : unit === 'DAILY_9' ? 'Daily 9 hours' : 'Daily 12 hours';
@@ -381,7 +386,7 @@ export function WorkforcePage() {
   const saveVendorEdit = async (e: React.FormEvent) => {
     e.preventDefault(); if (!editingVendor) return; setSavingEdit(true);
     try { await api.updateWorkforceVendor(editingVendor.id, vendorEditForm); setEditingVendor(null); load(); }
-    catch (err) { alert(err instanceof Error ? err.message : 'Failed to update vendor'); }
+    catch (err) { await dialog.alert(err instanceof Error ? err.message : 'Failed to update vendor', { title: 'Vendor not updated' }); }
     finally { setSavingEdit(false); }
   };
 
@@ -393,8 +398,70 @@ export function WorkforcePage() {
   const saveRateEdit = async (e: React.FormEvent) => {
     e.preventDefault(); if (!editingRate) return; setSavingEdit(true);
     try { await api.updateWorkforceRate(editingRate.id, { price: Number(rateEditForm.price), requirements: rateEditForm.requirements }); setEditingRate(null); load(); }
-    catch (err) { alert(err instanceof Error ? err.message : 'Failed to update price'); }
+    catch (err) { await dialog.alert(err instanceof Error ? err.message : 'Failed to update price', { title: 'Rate not updated' }); }
     finally { setSavingEdit(false); }
+  };
+
+  const handleApproveVendor = async (vendor: Vendor) => {
+    try {
+      await api.approveWorkforceVendor(vendor.id);
+      load();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Vendor could not be approved', { title: 'Approval failed' });
+    }
+  };
+
+  const handleRejectVendor = async (vendor: Vendor) => {
+    const reason = await dialog.prompt(`Explain why “${vendor.name}” is being rejected.`, {
+      title: 'Reject vendor',
+      confirmLabel: 'Reject vendor',
+      tone: 'danger',
+      placeholder: 'Rejection reason',
+      required: true,
+    });
+    if (!reason?.trim()) return;
+    try {
+      await api.rejectWorkforceVendor(vendor.id, reason.trim());
+      load();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Vendor could not be rejected', { title: 'Rejection failed' });
+    }
+  };
+
+  const handleDisableVendor = async (vendor: Vendor) => {
+    if (!await dialog.confirm(`Disable “${vendor.name}”? It will no longer be available for new requests.`, {
+      title: 'Disable vendor',
+      confirmLabel: 'Disable vendor',
+      tone: 'danger',
+    })) return;
+    try {
+      await api.deleteWorkforceVendor(vendor.id);
+      load();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Vendor could not be disabled', { title: 'Disable failed' });
+    }
+  };
+
+  const handleDeleteRate = async (rate: VendorServiceRate, vendorName: string) => {
+    if (!await dialog.confirm(`Delete the ${unitLabel(rate.unit)} rate for “${vendorName}”?`, {
+      title: 'Delete service rate',
+      confirmLabel: 'Delete rate',
+      tone: 'danger',
+    })) return;
+    try {
+      await api.deleteWorkforceRate(rate.id);
+      load();
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Rate could not be deleted', { title: 'Delete failed' });
+    }
+  };
+
+  const handleExportReport = async () => {
+    try {
+      await api.downloadWorkforceReportCsv(reportPeriod);
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Report export failed', { title: 'Export failed' });
+    }
   };
 
   return (
@@ -578,12 +645,13 @@ export function WorkforcePage() {
         {tab === 'catalog' && meta && (
           <div className="space-y-6">
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-              Procurement creates vendors and rates here. New vendors stay pending until every approval-route signer approves them; only then do their rates appear in New Request.
+              {canManageCatalog ? 'Procurement creates vendors and rates here. ' : 'Approved workforce catalog. '}
+              New vendors stay pending until every approval-route signer approves them; only then do their rates appear in New Request.
             </div>
             <div className="grid gap-6 lg:grid-cols-2">
             <div className="card p-5">
               <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Positions</h3>
-              <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              {canManageCatalog && <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                 <input
                   value={newPosition}
                   onChange={(e) => setNewPosition(e.target.value)}
@@ -595,7 +663,7 @@ export function WorkforcePage() {
                   {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
                 </select>
                 <button onClick={handleAddPosition} className="btn-secondary">Add</button>
-              </div>
+              </div>}
               <ul className="max-h-80 space-y-1 overflow-y-auto text-sm">
                 {meta.positions.map((p) => (
                   <li key={p.id} className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-gray-50">
@@ -607,7 +675,7 @@ export function WorkforcePage() {
             </div>
             <div className="card p-5">
               <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Vendors & approval</h3>
-              <div className="mb-3 grid gap-2 sm:grid-cols-2">
+              {canManageCatalog && <div className="mb-3 grid gap-2 sm:grid-cols-2">
                 <input
                   value={newVendor.name}
                   onChange={(e) => setNewVendor((v) => ({ ...v, name: e.target.value }))}
@@ -622,16 +690,16 @@ export function WorkforcePage() {
                 />
                 <input value={newVendor.phone} onChange={(e) => setNewVendor((v) => ({ ...v, phone: e.target.value }))} placeholder="Phone" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" />
                 <button onClick={handleAddVendor} className="btn-secondary">Create & submit</button>
-              </div>
-              <textarea value={newVendor.insuranceNotes} onChange={(e) => setNewVendor((v) => ({ ...v, insuranceNotes: e.target.value }))} rows={2} className="input mb-3" placeholder="Insurance, medical and compliance requirements" />
+              </div>}
+              {canManageCatalog && <textarea value={newVendor.insuranceNotes} onChange={(e) => setNewVendor((v) => ({ ...v, insuranceNotes: e.target.value }))} rows={2} className="input mb-3" placeholder="Insurance, medical and compliance requirements" />}
               <ul className="space-y-2 text-sm">
                 {meta.vendors.map((v) => (
                   <li key={v.id} className="rounded-lg border border-gray-100 px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
                       <div><div className="font-medium text-hoterra-navy">{v.name}</div><div className="text-xs text-gray-500">{v.contactEmail || 'No email'} · {v.approvalStatus}</div></div>
                       <div className="flex gap-1">
-                        {v.approvalStatus === 'PENDING_APPROVAL' && canCurrentUserApproveVendor(v) && <><button onClick={() => api.approveWorkforceVendor(v.id).then(load).catch((e) => alert(e.message))} className="rounded bg-green-50 px-2 py-1 text-xs text-green-700">Sign / Approve</button><button onClick={() => api.rejectWorkforceVendor(v.id, prompt('Reason') || undefined).then(load).catch((e) => alert(e.message))} className="rounded bg-red-50 px-2 py-1 text-xs text-red-700">Reject</button></>}
-                        {(user?.role === 'SYSTEM_ADMINISTRATOR' || user?.role === 'GENERAL_MANAGER' || user?.department?.code === 'PR') && <><button onClick={() => openVendorEdit(v)} className="rounded px-2 py-1 text-xs text-hoterra-steel">Edit</button><button onClick={() => api.deleteWorkforceVendor(v.id).then(load).catch((e) => alert(e.message))} className="rounded px-2 py-1 text-xs text-gray-500">Disable</button></>}
+                        {v.approvalStatus === 'PENDING_APPROVAL' && canCurrentUserApproveVendor(v) && <><button onClick={() => void handleApproveVendor(v)} className="rounded bg-green-50 px-2 py-1 text-xs text-green-700">Sign / Approve</button><button onClick={() => void handleRejectVendor(v)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-700">Reject</button></>}
+                        {canManageCatalog && <><button onClick={() => openVendorEdit(v)} className="rounded px-2 py-1 text-xs text-hoterra-steel">Edit</button><button onClick={() => void handleDisableVendor(v)} className="rounded px-2 py-1 text-xs text-gray-500">Disable</button></>}
                       </div>
                     </div>
                     {v.approvalStatus === 'PENDING_APPROVAL' && <div className="mt-1 text-[11px] font-medium text-amber-700">Awaiting: {currentVendorApprovalStep(v)?.label || 'Configured approver'}</div>}
@@ -646,15 +714,15 @@ export function WorkforcePage() {
             </div>
 
             <div className="card p-5">
-              <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Add vendor service price</h3>
-              <div className="mb-4 grid gap-2 md:grid-cols-6">
+              <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">{canManageCatalog ? 'Vendor service prices' : 'Approved vendor service prices'}</h3>
+              {canManageCatalog && <div className="mb-4 grid gap-2 md:grid-cols-6">
                 <select value={newRate.vendorId} onChange={(e) => setNewRate((r) => ({ ...r, vendorId: e.target.value }))} className="input"><option value="">Vendor…</option>{meta.vendors.filter((v) => v.isActive).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
                 <select value={newRate.positionId} onChange={(e) => setNewRate((r) => ({ ...r, positionId: e.target.value }))} className="input"><option value="">Service…</option>{meta.positions.filter((p) => p.isActive).map((p) => <option key={p.id} value={p.id}>{departments.find((department) => department.id === p.departmentId)?.name || 'Unassigned'} · {p.name}</option>)}</select>
                 <select value={newRate.unit} onChange={(e) => setNewRate((r) => ({ ...r, unit: e.target.value as WorkforceRateUnit }))} className="input"><option value="HOURLY">Hourly</option><option value="DAILY_9">Daily 9 hours</option><option value="DAILY_12">Daily 12 hours</option></select>
                 <input type="number" step="0.01" min="0" value={newRate.price} onChange={(e) => setNewRate((r) => ({ ...r, price: e.target.value }))} placeholder="Price AZN" className="input" />
                 <input value={newRate.requirements} onChange={(e) => setNewRate((r) => ({ ...r, requirements: e.target.value }))} placeholder="Requirements / notes" className="input" />
                 <button onClick={handleAddRate} className="btn-secondary">Save rate</button>
-              </div>
+              </div>}
               <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div><h4 className="text-sm font-semibold text-hoterra-navy">Filter catalog</h4><p className="text-xs text-gray-500">{filteredCatalogRows.length} of {catalogRows.length} rates shown</p></div>
@@ -709,7 +777,7 @@ export function WorkforcePage() {
                       <tr key={rate.id} className="border-b border-gray-50">
                         <td className="py-2">{departments.find((department) => department.id === rate.position.departmentId)?.name || 'Unassigned'}</td>
                         <td>{vendor.name}</td><td>{rate.position.name}</td><td>{unitLabel(rate.unit)}</td><td className="font-medium">{rate.price.toFixed(2)} {rate.currency}</td><td className="max-w-xs truncate text-xs text-gray-500">{rate.requirements || '—'}</td>
-                        <td className="text-right"><button onClick={() => openRateEdit({ ...rate, vendor })} className="mr-2 text-xs text-hoterra-steel">Edit</button><button onClick={() => api.deleteWorkforceRate(rate.id).then(load).catch((e) => alert(e.message))} className="text-xs text-red-600">Delete</button></td>
+                        <td className="text-right">{canManageCatalog && <><button onClick={() => openRateEdit({ ...rate, vendor })} className="mr-2 text-xs text-hoterra-steel">Edit</button><button onClick={() => void handleDeleteRate(rate, vendor.name)} className="text-xs text-red-600">Delete</button></>}</td>
                       </tr>
                     ))}
                     {filteredCatalogRows.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-sm text-gray-400">No catalog rates match the selected filters.</td></tr>}
@@ -721,11 +789,22 @@ export function WorkforcePage() {
         )}
 
         {tab === 'routes' && meta && (
-          <RoutesEditorPanel meta={meta} departments={departments} onSaved={load} />
+          <RoutesEditorPanel
+            meta={meta}
+            departments={departments}
+            canManageRoutes={hasCapability(user, 'workforce.routes.manage')}
+            canManageBudget={hasCapability(user, 'workforce.budget.manage')}
+            onSaved={load}
+          />
         )}
 
         {tab === 'templates' && meta && (
-          <TemplatesPanel meta={meta} onUse={applyTemplate} onSaved={load} />
+          <TemplatesPanel
+            meta={meta}
+            canManageRecurring={hasCapability(user, 'workforce.settings.manage')}
+            onUse={applyTemplate}
+            onSaved={load}
+          />
         )}
 
         {tab === 'payroll' && (
@@ -745,7 +824,13 @@ export function WorkforcePage() {
           />
         )}
 
-        {tab === 'settings' && meta && <SettingsPanel meta={meta} onSaved={load} />}
+        {tab === 'settings' && meta && (
+          <SettingsPanel
+            meta={meta}
+            canViewOutbox={user?.role === 'SYSTEM_ADMINISTRATOR'}
+            onSaved={load}
+          />
+        )}
 
         {tab === 'reports' && report && (
           <div className={`space-y-6 ${reportLoading ? 'opacity-60' : ''}`}>
@@ -777,12 +862,12 @@ export function WorkforcePage() {
                 <button className="btn-secondary" onClick={loadReport} disabled={reportLoading} title="Refresh report">
                   <RefreshCw className={`h-4 w-4 ${reportLoading ? 'animate-spin' : ''}`} />
                 </button>
-                <button
+                {hasCapability(user, 'workforce.reports.export') && <button
                   className="btn-secondary flex items-center gap-2"
-                  onClick={() => api.downloadWorkforceReportCsv(reportPeriod).catch((error) => alert(error.message))}
+                  onClick={() => void handleExportReport()}
                 >
                   <Download className="h-4 w-4" /> Export payment CSV
-                </button>
+                </button>}
               </div>
             </div>
 

@@ -1,7 +1,7 @@
 import './loadEnv';
 import express from 'express';
 import cors from 'cors';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import authRoutes from './routes/auth';
 import departmentRoutes from './routes/departments';
@@ -9,6 +9,7 @@ import documentRoutes from './routes/documents';
 import templateRoutes from './routes/templates';
 import settingsRoutes from './routes/settings';
 import auditRoutes from './routes/audit';
+import archiveRoutes from './routes/archive';
 import notificationRoutes from './routes/notifications';
 import userRoutes from './routes/users';
 import workflowRoutes from './routes/workflows';
@@ -21,15 +22,29 @@ import workforceRoutes from './routes/workforce';
 import vendorPortalRoutes from './routes/vendorPortal';
 import fileRoutes from './routes/files';
 import publicTenantRoutes from './routes/publicTenant';
-import { startRecurringScheduler } from './lib/workforceRecurring';
+import dashboardRoutes from './routes/dashboard';
+import { startDocumentIndexScheduler, stopDocumentIndexScheduler } from './modules/documents';
+import { startRecurringScheduler } from './modules/workforce';
 import { tenantMiddleware } from './middleware/tenant';
 import { isAllowedOrigin, isProduction, runtimeConfig, validateRuntimeConfig } from './config';
 import { createRateLimiter, securityHeaders } from './middleware/security';
 import { disconnectPrisma, systemPrisma } from './db';
 import { assertDatabaseSecurity } from './databaseSecurity';
 import { startEmailOutboxWorker, stopEmailOutboxWorker } from './lib/mail';
+import { runWithRequestContext } from './lib/requestContext';
 
 const FRONTEND_URL = runtimeConfig.frontendUrl;
+
+function sessionRateLimitKey(req: express.Request): string {
+  const authorization = String(req.headers.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (bearer) {
+    // Never retain the bearer value in limiter memory or operational logs.
+    const fingerprint = createHash('sha256').update(bearer).digest('hex').slice(0, 32);
+    return `session:${fingerprint}`;
+  }
+  return `anonymous:${req.ip || 'unknown'}`;
+}
 
 export function createApp() {
   const app = express();
@@ -38,8 +53,11 @@ export function createApp() {
 
   app.use(securityHeaders);
   app.use((req, res, next) => {
-    const requestId = String(req.headers['x-request-id'] || randomUUID()).slice(0, 100);
+    // The correlation identifier is server-issued evidence. Accepting a caller
+    // supplied value would let an untrusted client create ambiguous audit trails.
+    const requestId = randomUUID();
     const startedAt = Date.now();
+    req.requestId = requestId;
     res.setHeader('X-Request-Id', requestId);
     res.on('finish', () => {
       console.log(JSON.stringify({
@@ -52,7 +70,7 @@ export function createApp() {
         durationMs: Date.now() - startedAt,
       }));
     });
-    next();
+    return runWithRequestContext(requestId, next);
   });
   app.use(cors({
     origin(origin, callback) {
@@ -65,9 +83,16 @@ export function createApp() {
     optionsSuccessStatus: 204,
     maxAge: 86_400,
   }));
+  // A high per-IP safety ceiling protects the process while avoiding hotel/NAT
+  // lockouts. The tighter bucket below is isolated per authenticated session.
+  app.use('/api', createRateLimiter({
+    windowMs: 15 * 60 * 1000,
+    max: runtimeConfig.globalIpRateLimitMax,
+  }));
   app.use('/api', createRateLimiter({
     windowMs: 15 * 60 * 1000,
     max: runtimeConfig.globalRateLimitMax,
+    key: sessionRateLimitKey,
   }));
   app.use(express.json({ limit: runtimeConfig.requestBodyLimit, strict: true }));
 
@@ -104,9 +129,11 @@ export function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/departments', departmentRoutes);
   app.use('/api/documents', documentRoutes);
+  app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/templates', templateRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/audit', auditRoutes);
+  app.use('/api/archive', archiveRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/workflows', workflowRoutes);
@@ -123,8 +150,15 @@ export function createApp() {
     res.status(404).json({ error: 'API endpoint not found' });
   });
 
-  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('[api]', err);
+  app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error(JSON.stringify({
+      level: 'error',
+      event: 'api_error',
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl.split('?')[0],
+      error: err instanceof Error ? err.name : 'UnknownError',
+    }));
     if (!res.headersSent) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         return res.status(409).json({ error: 'A record with the same unique value already exists' });
@@ -138,7 +172,7 @@ export function createApp() {
       if (err instanceof Error && err.message === 'Origin is not allowed by CORS') {
         return res.status(403).json({ error: 'Origin is not allowed' });
       }
-      return res.status(500).json({ error: 'Internal server error' });
+      return res.status(500).json({ error: 'Internal server error', requestId: req.requestId });
     }
   });
 
@@ -155,6 +189,7 @@ export async function startServer(port = Number(process.env.PORT) || 3211) {
     const server = app.listen(port, host, () => {
       console.log(`HOTERRA HDMS API listening on ${host}:${port}`);
       startRecurringScheduler();
+      startDocumentIndexScheduler();
       startEmailOutboxWorker();
       resolve({ port });
     });
@@ -163,6 +198,7 @@ export async function startServer(port = Number(process.env.PORT) || 3211) {
       console.log(`[server] ${signal} received; shutting down`);
       server.close(async () => {
         stopEmailOutboxWorker();
+        stopDocumentIndexScheduler();
         await disconnectPrisma().catch(() => undefined);
         process.exit(0);
       });

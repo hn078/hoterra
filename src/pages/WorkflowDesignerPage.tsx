@@ -24,6 +24,7 @@ import {
 import { Header } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { SwitchField } from '@/components/ui/Switch';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import { SIGNATURE_ROLES } from '@/lib/signatures';
 import type { Role, WorkflowItem } from '@/types';
@@ -61,6 +62,7 @@ const STEP_ICONS: Partial<Record<WorkflowStepType, React.ElementType>> = {
 
 export function WorkflowDesignerPage() {
   const { id } = useParams<{ id: string }>();
+  const dialog = useAppDialog();
   const [workflow, setWorkflow] = useState<WorkflowItem | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -86,11 +88,11 @@ export function WorkflowDesignerPage() {
       const saved = await api.updateWorkflow(id, {
         name: workflow.name,
         description: workflow.description ?? undefined,
-        steps: workflow.steps,
+        ...(workflow.status === 'DRAFT' ? { steps: workflow.steps } : {}),
       });
       setWorkflow({ ...saved, steps: parseWorkflowSteps(saved.steps) });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save workflow');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to save workflow', { title: 'Workflow not saved' });
     } finally {
       setSaving(false);
     }
@@ -98,18 +100,30 @@ export function WorkflowDesignerPage() {
 
   const handleValidate = () => {
     if (!workflow?.steps?.length) {
-      alert('Workflow must have at least one step');
+      void dialog.alert('Workflow must have at least one step', { title: 'Validation failed' });
       return;
     }
-    alert('Workflow structure is valid');
+    const expected: Role[] = ['HOD', 'FINANCE_DIRECTOR', 'GENERAL_MANAGER'];
+    const actual = workflow.steps.map((step) => (
+      step.type === 'APPROVAL' || step.type === 'SIGN' ? step.role : null
+    ));
+    if (actual.length !== expected.length || actual.some((role, index) => role !== expected[index])) {
+      void dialog.alert('Runtime route must be exactly: Head of Department → Finance Director → General Manager', { title: 'Unsupported approval route' });
+      return;
+    }
+    void dialog.alert('Workflow is valid and supported by the runtime engine', { title: 'Workflow valid' });
   };
 
   const handleActivate = async () => {
     if (!id || !workflow) return;
     if (!workflow.steps?.length) {
-      alert('Add at least one step before activating');
+      await dialog.alert('Add at least one step before activating', { title: 'Cannot activate workflow' });
       return;
     }
+    if (!await dialog.confirm('Activate this workflow? Its approval steps will be locked after activation.', {
+      title: 'Activate workflow',
+      confirmLabel: 'Activate',
+    })) return;
     setSaving(true);
     try {
       await api.updateWorkflow(id, {
@@ -120,7 +134,7 @@ export function WorkflowDesignerPage() {
       const activated = await api.activateWorkflow(id);
       setWorkflow({ ...activated, steps: parseWorkflowSteps(activated.steps) });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to activate workflow');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to activate workflow', { title: 'Activation failed' });
     } finally {
       setSaving(false);
     }
@@ -129,7 +143,11 @@ export function WorkflowDesignerPage() {
   const handleSetDefault = async (checked: boolean) => {
     if (!id || !workflow) return;
     if (workflow.status !== 'ACTIVE') {
-      alert('Activate the workflow before setting it as default');
+      await dialog.alert('Activate the workflow before setting it as default', { title: 'Workflow is not active' });
+      return;
+    }
+    if (!checked && workflow.isDefault) {
+      await dialog.alert('Select another active workflow as default instead', { title: 'Default workflow required' });
       return;
     }
     setSaving(true);
@@ -137,14 +155,14 @@ export function WorkflowDesignerPage() {
       const updated = await api.setWorkflowDefault(id, checked);
       setWorkflow({ ...updated, steps: parseWorkflowSteps(updated.steps) });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update default');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to update default', { title: 'Default not updated' });
     } finally {
       setSaving(false);
     }
   };
 
   const addStep = (type: WorkflowStepType) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const steps = [...workflow.steps, createDefaultStep(type)];
     updateWorkflow({ steps });
     setSelectedIndex(steps.length - 1);
@@ -152,14 +170,14 @@ export function WorkflowDesignerPage() {
   };
 
   const removeStep = (index: number) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const steps = workflow.steps.filter((_, i) => i !== index);
     updateWorkflow({ steps });
     setSelectedIndex(Math.min(selectedIndex, Math.max(0, steps.length - 1)));
   };
 
   const moveStep = (index: number, direction: -1 | 1) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const target = index + direction;
     if (target < 0 || target >= workflow.steps.length) return;
     const steps = [...workflow.steps];
@@ -169,14 +187,14 @@ export function WorkflowDesignerPage() {
   };
 
   const updateStep = (index: number, patch: Partial<WorkflowStep>) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const steps = [...workflow.steps];
     steps[index] = { ...steps[index], ...patch } as WorkflowStep;
     updateWorkflow({ steps });
   };
 
   const updateParallelSubStep = (stepIndex: number, subIndex: number, role: Role) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const step = workflow.steps[stepIndex];
     if (step.type !== 'PARALLEL') return;
     const subSteps = [...step.steps];
@@ -185,7 +203,7 @@ export function WorkflowDesignerPage() {
   };
 
   const addParallelSubStep = (stepIndex: number) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const step = workflow.steps[stepIndex];
     if (step.type !== 'PARALLEL') return;
     updateStep(stepIndex, {
@@ -194,7 +212,7 @@ export function WorkflowDesignerPage() {
   };
 
   const removeParallelSubStep = (stepIndex: number, subIndex: number) => {
-    if (!workflow) return;
+    if (!workflow || workflow.status !== 'DRAFT') return;
     const step = workflow.steps[stepIndex];
     if (step.type !== 'PARALLEL' || step.steps.length <= 2) return;
     updateStep(stepIndex, {
@@ -205,6 +223,7 @@ export function WorkflowDesignerPage() {
   const selectedStep = workflow?.steps[selectedIndex];
   const isDraft = workflow?.status === 'DRAFT';
   const isActive = workflow?.status === 'ACTIVE';
+  const isArchived = workflow?.status === 'ARCHIVED';
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
@@ -216,10 +235,17 @@ export function WorkflowDesignerPage() {
             {workflow && (
               <StatusBadge status={workflow.status} isDefault={workflow.isDefault} />
             )}
-            <ToolbarBtn icon={Save} label={saving ? 'Saving...' : 'Save Draft'} variant="outline" onClick={handleSave} disabled={saving} />
+            {!isArchived && (
+              <ToolbarBtn icon={Save} label={saving ? 'Saving...' : isDraft ? 'Save Draft' : 'Save Details'} variant="outline" onClick={handleSave} disabled={saving} />
+            )}
             <ToolbarBtn icon={CheckCircle} label="Validate" variant="outline" onClick={handleValidate} />
             {isDraft && (
               <ToolbarBtn icon={Upload} label="Activate" variant="primary" onClick={handleActivate} disabled={saving} />
+            )}
+            {isActive && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                Active workflow steps are locked. Create a new draft version to change the approval route.
+              </div>
             )}
           </div>
         }
@@ -285,7 +311,7 @@ export function WorkflowDesignerPage() {
             <button
               type="button"
               onClick={() => setShowAddMenu((v) => !v)}
-              disabled={!workflow}
+              disabled={!workflow || !isDraft}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-600 hover:border-hoterra-steel hover:text-hoterra-steel disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
@@ -293,7 +319,7 @@ export function WorkflowDesignerPage() {
             </button>
             {showAddMenu && (
               <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                {WORKFLOW_STEP_TYPES.map(({ type, label, runtimeImplemented }) => (
+                {WORKFLOW_STEP_TYPES.filter(({ runtimeImplemented }) => runtimeImplemented).map(({ type, label }) => (
                   <button
                     key={type}
                     type="button"
@@ -301,9 +327,6 @@ export function WorkflowDesignerPage() {
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
                   >
                     <span>{label}</span>
-                    {!runtimeImplemented && (
-                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">Design</span>
-                    )}
                   </button>
                 ))}
               </div>
@@ -378,6 +401,7 @@ export function WorkflowDesignerPage() {
               onUpdateParallelSubStep={(subIndex, role) => updateParallelSubStep(selectedIndex, subIndex, role)}
               onAddParallelSubStep={() => addParallelSubStep(selectedIndex)}
               onRemoveParallelSubStep={(subIndex) => removeParallelSubStep(selectedIndex, subIndex)}
+              readOnly={!isDraft}
             />
           ) : workflow && workflow.steps.length === 0 ? (
             <div className="space-y-3 text-sm text-gray-500">
@@ -414,6 +438,7 @@ function StepPropertiesPanel({
   onUpdateParallelSubStep,
   onAddParallelSubStep,
   onRemoveParallelSubStep,
+  readOnly,
 }: {
   step: WorkflowStep;
   index: number;
@@ -427,11 +452,12 @@ function StepPropertiesPanel({
   onUpdateParallelSubStep: (subIndex: number, role: Role) => void;
   onAddParallelSubStep: () => void;
   onRemoveParallelSubStep: (subIndex: number) => void;
+  readOnly: boolean;
 }) {
   const meta = stepTypeMeta(step.type === 'SIGN' ? 'APPROVAL' : step.type);
 
   return (
-    <div className="space-y-4 text-sm">
+    <fieldset disabled={readOnly} className="space-y-4 text-sm disabled:opacity-70">
       <PropRow label="Step" value={`${index + 1} of ${total}`} />
       <PropRow label="Type" value={meta.label} />
 
@@ -554,7 +580,7 @@ function StepPropertiesPanel({
         <Trash2 className="h-4 w-4" />
         Remove step
       </button>
-    </div>
+    </fieldset>
   );
 }
 

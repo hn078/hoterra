@@ -1,47 +1,36 @@
 import { Router } from 'express';
 import { asyncHandler } from '../lib/asyncHandler';
 import { routeParam } from '../utils';
-import { getInviteByToken, respondVendorInvite } from '../lib/workforceVendor';
+import { prisma } from '../db';
+import {
+  getVendorPortalOrder,
+  respondToVendorInvite,
+  VendorPortalReadError,
+} from '../modules/workforce';
+import { createRateLimiter } from '../middleware/security';
 
 const router = Router();
+const vendorReadLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 120 });
+const vendorResponseLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 30 });
 
 router.get(
-  '/order/:token',
+  '/order/:token', vendorReadLimiter,
   asyncHandler(async (req, res) => {
-    const invite = await getInviteByToken(routeParam(req.params.token));
-    if (!invite) return res.status(404).json({ error: 'Order not found' });
-
-    const expired = invite.expiresAt.getTime() < Date.now();
-    res.json({
-      token: invite.token,
-      inviteStatus: expired && invite.status === 'PENDING' ? 'EXPIRED' : invite.status,
-      expiresAt: invite.expiresAt.toISOString(),
-      vendor: {
-        id: invite.vendor.id,
-        name: invite.vendor.name,
-      },
-      order: {
-        code: invite.request.code,
-        hotelName: invite.request.hotelName,
-        department: invite.request.department.name,
-        position: invite.request.position.name,
-        workDate: invite.request.workDate.toISOString(),
-        shift: invite.request.shift,
-        startTime: invite.request.startTime,
-        endTime: invite.request.endTime,
-        quantity: invite.request.quantity,
-        comment: invite.request.comment,
-        status: invite.request.status,
-      },
-      canRespond: invite.status === 'PENDING' && !expired && invite.request.status === 'SENT_TO_VENDOR',
-    });
+    try {
+      return res.json(await getVendorPortalOrder(prisma, routeParam(req.params.token)));
+    } catch (error) {
+      if (!(error instanceof VendorPortalReadError)) throw error;
+      return error.code === 'EXPIRED'
+        ? res.status(410).json({ error: 'Order link expired' })
+        : res.status(404).json({ error: 'Order not found' });
+    }
   })
 );
 
 router.post(
-  '/order/:token/accept',
+  '/order/:token/accept', vendorResponseLimiter,
   asyncHandler(async (req, res) => {
-    const result = await respondVendorInvite(routeParam(req.params.token), 'accept');
+    const result = await respondToVendorInvite(prisma, routeParam(req.params.token), 'accept');
     if ('error' in result) {
       return res.status(result.httpStatus ?? 400).json({ error: result.error });
     }
@@ -50,9 +39,10 @@ router.post(
 );
 
 router.post(
-  '/order/:token/decline',
+  '/order/:token/decline', vendorResponseLimiter,
   asyncHandler(async (req, res) => {
-    const result = await respondVendorInvite(
+    const result = await respondToVendorInvite(
+      prisma,
       routeParam(req.params.token),
       'decline',
       req.body?.reason

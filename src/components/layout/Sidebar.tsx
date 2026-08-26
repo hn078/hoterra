@@ -26,27 +26,36 @@ import {
   Menu,
   X,
   MoreHorizontal,
+  Mail,
 } from 'lucide-react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useUIStore } from '@/store/auth';
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS, type DocumentStatus } from '@/types';
 import { cn, getInitials } from '@/lib/utils';
+import { hasCapability, type Capability } from '@/modules/access-control';
 
 const navItems = [
-  { to: '/app', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/documents', icon: FileText, label: 'Documents' },
-  { to: '/approvals', icon: CheckSquare, label: 'My Approvals', badgeKey: 'approvals' as const },
-  { to: '/templates', icon: LayoutTemplate, label: 'Templates' },
-  { to: '/departments', icon: Building2, label: 'Departments' },
-  { to: '/workflows', icon: GitBranch, label: 'Workflows' },
-  { to: '/users', icon: Users, label: 'Users & Roles' },
-  { to: '/workforce', icon: Briefcase, label: 'Casual Workforce' },
-  { to: '/reports', icon: BarChart3, label: 'Reports' },
-  { to: '/archive', icon: Archive, label: 'Archive' },
-  { to: '/audit', icon: ScrollText, label: 'Audit Log' },
-  { to: '/notifications', icon: Bell, label: 'Notifications', badgeKey: 'notifications' as const },
-  { to: '/settings', icon: Settings, label: 'Settings' },
-];
+  { to: '/app', icon: LayoutDashboard, label: 'Dashboard', capability: 'dashboard.view' },
+  { to: '/documents', icon: FileText, label: 'Documents', capability: 'documents.read' },
+  { to: '/approvals', icon: CheckSquare, label: 'My Approvals', capability: 'approvals.read', badgeKey: 'approvals' as const },
+  { to: '/templates', icon: LayoutTemplate, label: 'Templates', capability: 'templates.read' },
+  { to: '/departments', icon: Building2, label: 'Departments', capability: 'departments.read' },
+  { to: '/workflows', icon: GitBranch, label: 'Workflows', capability: 'workflows.read' },
+  { to: '/users', icon: Users, label: 'Users & Roles', capability: 'users.directory.read' },
+  { to: '/workforce', icon: Briefcase, label: 'Casual Workforce', capability: 'workforce.read' },
+  { to: '/reports', icon: BarChart3, label: 'Reports', capability: 'reports.read' },
+  { to: '/archive', icon: Archive, label: 'Archive', capability: 'documents.archive' },
+  { to: '/audit', icon: ScrollText, label: 'Audit Log', capability: 'audit.read' },
+  { to: '/messages', icon: Mail, label: 'Messages', capability: 'messages.use', badgeKey: 'messages' as const },
+  { to: '/notifications', icon: Bell, label: 'Notifications', capability: 'notifications.read', badgeKey: 'notifications' as const },
+  { to: '/settings', icon: Settings, label: 'Settings', capability: 'settings.read' },
+] satisfies Array<{
+  capability: Capability;
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  badgeKey?: 'approvals' | 'notifications' | 'messages';
+}>;
 
 export function Sidebar() {
   const { user } = useAuthStore();
@@ -127,8 +136,11 @@ export function Sidebar() {
       </div>
 
       <nav className={cn('flex-1 overflow-y-auto overscroll-contain py-3', collapsed ? 'px-1.5' : 'px-2')}>
-        {navItems.map(({ to, icon: Icon, label, badgeKey }) => {
+        {navItems.filter(({ capability }) => hasCapability(user, capability)).map(({ to, icon: Icon, label, badgeKey }) => {
           const badge = badgeKey ? badges[badgeKey] : undefined;
+          const displayLabel = to === '/users' && !hasCapability(user, 'roles.read')
+            ? 'Department Users'
+            : label;
           return (
           <NavLink
             key={to}
@@ -150,13 +162,13 @@ export function Sidebar() {
             )}
             {!collapsed && (
               <>
-                <span className="flex-1 truncate">{label}</span>
+                <span className="flex-1 truncate">{displayLabel}</span>
                 {badge !== undefined && badge > 0 && <CountBadge count={badge} />}
               </>
             )}
           </NavLink>
         );})}
-        {!collapsed && (
+        {!collapsed && hasCapability(user, 'search.use') && (
           <button
             onClick={() => navigate('/search')}
             className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
@@ -268,7 +280,7 @@ export function Header({ title, subtitle, showSearch, action }: HeaderProps) {
           </div>
         </div>
 
-        {showSearch && (
+        {showSearch && hasCapability(user, 'search.use') && (
           <div className="relative mx-4 hidden max-w-xl flex-1 md:block">
             <button
               type="button"
@@ -338,18 +350,31 @@ export function Header({ title, subtitle, showSearch, action }: HeaderProps) {
 }
 
 const mobileNavItems = [
-  { to: '/app', icon: LayoutDashboard, label: 'Home' },
-  { to: '/documents', icon: FileText, label: 'Docs' },
-  { to: '/approvals', icon: CheckSquare, label: 'Approvals', badgeKey: 'approvals' as const },
-  { to: '/workforce', icon: Briefcase, label: 'Workforce' },
-];
+  { to: '/app', icon: LayoutDashboard, label: 'Home', capability: 'dashboard.view' },
+  { to: '/documents', icon: FileText, label: 'Docs', capability: 'documents.read' },
+  { to: '/approvals', icon: CheckSquare, label: 'Approvals', capability: 'approvals.read', badgeKey: 'approvals' as const },
+  { to: '/workforce', icon: Briefcase, label: 'Workforce', capability: 'workforce.read' },
+  { to: '/notifications', icon: Bell, label: 'Alerts', capability: 'notifications.read', badgeKey: 'notifications' as const },
+] satisfies Array<{
+  capability: Capability;
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  badgeKey?: 'approvals' | 'notifications';
+}>;
 
 export function MobileBottomNav() {
   const badges = useNavBadges();
   const { openMobileSidebar } = useUIStore();
+  const user = useAuthStore((state) => state.user);
+  const visibleItems = mobileNavItems.filter(({ capability }) => hasCapability(user, capability));
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 grid h-[calc(4rem+env(safe-area-inset-bottom))] grid-cols-5 border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(16,34,53,0.08)] backdrop-blur md:hidden" aria-label="Mobile navigation">
-      {mobileNavItems.map(({ to, icon: Icon, label, badgeKey }) => {
+    <nav
+      className="fixed inset-x-0 bottom-0 z-30 grid h-[calc(4rem+env(safe-area-inset-bottom))] border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(16,34,53,0.08)] backdrop-blur md:hidden"
+      style={{ gridTemplateColumns: `repeat(${visibleItems.length + 1}, minmax(0, 1fr))` }}
+      aria-label="Mobile navigation"
+    >
+      {visibleItems.map(({ to, icon: Icon, label, badgeKey }) => {
         const badge = badgeKey ? badges[badgeKey] : 0;
         return (
           <NavLink key={to} to={to} className={({ isActive }) => cn('relative flex min-w-0 flex-col items-center justify-center gap-1 text-[10px] font-medium', isActive ? 'text-hoterra-navy' : 'text-gray-500')}>
@@ -372,6 +397,8 @@ export function MobileBottomNav() {
 }
 
 export function CreateDocumentButton() {
+  const user = useAuthStore((state) => state.user);
+  if (!hasCapability(user, 'documents.create')) return null;
   return (
     <NavLink
       to="/documents/create"

@@ -255,25 +255,39 @@ export const TEMPLATE_FIELDS = [
   { group: 'Dates', fields: ['Created Date', 'Updated Date', 'Approval Date'] },
 ];
 
-export function mapAuditAction(action: string): { label: string; color: string; module: string; severity: string } {
+function auditModule(entityType?: string | null, action?: string) {
+  if (action === 'LOGIN' || action === 'LOGOUT' || ['System', 'SystemSettings', 'TenantBranding'].includes(entityType || '')) return 'System';
+  if (['APPROVE', 'REJECT', 'SUBMIT', 'SIGN'].includes(action || '')) return 'My Approvals';
+  if (['ARCHIVE', 'DELETE'].includes(action || '')) return 'Archive';
+  if (['Document', 'DocumentAttachment', 'DocumentComment'].includes(entityType || '')) return 'Documents';
+  if (entityType === 'Template') return 'Templates';
+  if (['Department', 'WorkflowRoute'].includes(entityType || '')) return 'Organization';
+  if (['User', 'CustomRole'].includes(entityType || '')) return 'Users & Roles';
+  if (['Conversation', 'Message'].includes(entityType || '')) return 'Messaging';
+  if ((entityType || '').startsWith('Workforce') || (entityType || '').startsWith('Vendor') || entityType === 'DepartmentCasualBudget') return 'Workforce';
+  return 'System';
+}
+
+export function mapAuditAction(action: string, entityType?: string | null): { label: string; color: string; module: string; severity: string } {
   const map: Record<string, { label: string; color: string; module: string; severity: string }> = {
     LOGIN: { label: 'Login Authentication', color: 'bg-blue-100 text-blue-700', module: 'System', severity: 'Low' },
     LOGOUT: { label: 'Logout', color: 'bg-gray-100 text-gray-700', module: 'System', severity: 'Low' },
-    VIEW: { label: 'Viewed Document', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
-    DOWNLOAD: { label: 'Downloaded Document', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
-    PRINT: { label: 'Printed Document', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
-    CREATE: { label: 'Created Document', color: 'bg-green-100 text-green-700', module: 'Documents', severity: 'Medium' },
-    UPDATE: { label: 'Updated Document', color: 'bg-blue-100 text-blue-700', module: 'Documents', severity: 'Medium' },
-    DELETE: { label: 'Deleted Document', color: 'bg-red-100 text-red-700', module: 'Documents', severity: 'High' },
-    PUBLISH: { label: 'Published Document', color: 'bg-green-100 text-green-700', module: 'Documents', severity: 'Medium' },
-    UNPUBLISH: { label: 'Unpublished Document', color: 'bg-amber-100 text-amber-700', module: 'Documents', severity: 'Medium' },
-    APPROVE: { label: 'Approved Document', color: 'bg-green-100 text-green-700', module: 'My Approvals', severity: 'Medium' },
-    REJECT: { label: 'Rejected Document', color: 'bg-red-100 text-red-700', module: 'My Approvals', severity: 'High' },
+    VIEW: { label: 'Viewed', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
+    DOWNLOAD: { label: 'Downloaded', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
+    PRINT: { label: 'Printed', color: 'bg-gray-100 text-gray-700', module: 'Documents', severity: 'Low' },
+    CREATE: { label: 'Created', color: 'bg-green-100 text-green-700', module: 'Documents', severity: 'Medium' },
+    UPDATE: { label: 'Updated', color: 'bg-blue-100 text-blue-700', module: 'Documents', severity: 'Medium' },
+    DELETE: { label: 'Deleted', color: 'bg-red-100 text-red-700', module: 'Documents', severity: 'High' },
+    PUBLISH: { label: 'Published', color: 'bg-green-100 text-green-700', module: 'Documents', severity: 'Medium' },
+    UNPUBLISH: { label: 'Unpublished', color: 'bg-amber-100 text-amber-700', module: 'Documents', severity: 'Medium' },
+    APPROVE: { label: 'Approved', color: 'bg-green-100 text-green-700', module: 'My Approvals', severity: 'Medium' },
+    REJECT: { label: 'Rejected', color: 'bg-red-100 text-red-700', module: 'My Approvals', severity: 'High' },
     SUBMIT: { label: 'Submitted for Review', color: 'bg-blue-100 text-blue-700', module: 'My Approvals', severity: 'Medium' },
-    SIGN: { label: 'Signed Document', color: 'bg-purple-100 text-purple-700', module: 'Documents', severity: 'Medium' },
-    ARCHIVE: { label: 'Archived Document', color: 'bg-slate-100 text-slate-700', module: 'Archive', severity: 'Low' },
+    SIGN: { label: 'Signed', color: 'bg-purple-100 text-purple-700', module: 'My Approvals', severity: 'Medium' },
+    ARCHIVE: { label: 'Archived', color: 'bg-slate-100 text-slate-700', module: 'Archive', severity: 'Low' },
   };
-  return map[action] || { label: action, color: 'bg-gray-100 text-gray-700', module: 'System', severity: 'Low' };
+  const result = map[action] || { label: action, color: 'bg-gray-100 text-gray-700', module: 'System', severity: 'Low' };
+  return { ...result, module: auditModule(entityType, action) };
 }
 
 export const AUDIT_ACTION_OPTIONS = [
@@ -299,14 +313,40 @@ export const AUDIT_MODULE_OPTIONS = [
   'Documents',
   'My Approvals',
   'Archive',
+  'Templates',
+  'Organization',
   'Users & Roles',
+  'Reports',
+  'Workforce',
+  'Messaging',
 ] as const;
 
 export const AUDIT_ENTITY_TYPE_OPTIONS = [
   'Document',
+  'DocumentAttachment',
+  'DocumentComment',
   'Template',
   'User',
+  'CustomRole',
   'Department',
-  'Workflow',
+  'WorkflowRoute',
   'System',
+  'SystemSettings',
+  'TenantBranding',
+  'Conversation',
+  'Message',
+  'WorkforceRequest',
+  'WorkforceVendorCorrectionReview',
+  'WorkforceQualityEvaluation',
+  'WorkforceApprovalRoute',
+  'WorkforcePosition',
+  'WorkforceSettings',
+  'WorkforceRequestTemplate',
+  'DepartmentCasualBudget',
+  'Vendor',
+  'VendorInvite',
+  'VendorServiceRate',
+  'VendorInvoice',
+  'WorkforceReport',
+  'Report',
 ] as const;

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Check, Pencil, Plus, X } from 'lucide-react';
 import { Header, DepartmentBadge } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
 import type { WorkforceMeta, WorkforceRateUnit, WorkforceRequest } from '@/types';
@@ -16,6 +17,7 @@ import { useAuthStore } from '@/store/auth';
 export function WorkforceRequestPage() {
   const { id } = useParams<{ id: string }>();
   const user = useAuthStore((s) => s.user);
+  const dialog = useAppDialog();
   const [request, setRequest] = useState<WorkforceRequest | null>(null);
   const [meta, setMeta] = useState<WorkforceMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,6 +25,7 @@ export function WorkforceRequestPage() {
   const [actuals, setActuals] = useState({ actualQuantity: 0, actualHours: 0, actualCost: 0 });
   const [rejectReason, setRejectReason] = useState('');
   const [evaluation, setEvaluation] = useState({
+    vendorId: '',
     phase: 'ONGOING' as 'ONGOING' | 'FINAL',
     overallScore: 5,
     notes: '',
@@ -47,6 +50,8 @@ export function WorkforceRequestPage() {
     try {
       const r = await api.getWorkforceRequest(id);
       setRequest(r);
+      const firstAssignedVendor = r.items.find((item) => item.vendor)?.vendor || r.acceptedVendor || r.vendor;
+      setEvaluation((value) => ({ ...value, vendorId: firstAssignedVendor?.id || '' }));
       if (r.canCorrectVendors || r.status === 'RETURNED_FOR_REVISION') {
         api.getWorkforceMeta().then(setMeta).catch(console.error);
       } else {
@@ -87,7 +92,7 @@ export function WorkforceRequestPage() {
       await fn();
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Action failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Action failed', { title: 'Action failed' });
     } finally {
       setBusy(false);
     }
@@ -115,11 +120,22 @@ export function WorkforceRequestPage() {
   const isPrivileged = !!user && ['GENERAL_MANAGER', 'SYSTEM_ADMINISTRATOR'].includes(user.role);
   const isDepartmentHod = !!user && user.role === 'HOD' && user.department?.id === request.departmentId;
   const isProcurementHead = !!user && user.role === 'HOD' && user.department?.code === 'PR';
+  const assignedVendors = Array.from(new Map(
+    request.items
+      .map((item) => item.vendor)
+      .filter((vendor): vendor is NonNullable<typeof vendor> => Boolean(vendor))
+      .map((vendor) => [vendor.id, vendor])
+  ).values());
+  if (!assignedVendors.length) {
+    const fallbackVendor = request.acceptedVendor || request.vendor;
+    if (fallbackVendor) assignedVendors.push(fallbackVendor);
+  }
+  const selectedEvaluationVendor = assignedVendors.find((vendor) => vendor.id === evaluation.vendorId) || assignedVendors[0];
   const canProcurementConfirm = Boolean(request.canConfirmProcurement);
   const canSubmitActuals = isDepartmentHod || isProcurementHead || isPrivileged;
   const canEnterActuals = canSubmitActuals && ['VENDOR_ACCEPTED', 'VENDORS_FULLY_APPROVED', 'IN_SERVICE', 'AWAITING_EVALUATION'].includes(request.status);
-  const canEvaluate = !!request.vendorId && (isDepartmentHod || isPrivileged);
-  const canReplaceVendor = !!request.vendorId && (isDepartmentHod || isProcurementHead || isPrivileged);
+  const canEvaluate = assignedVendors.length > 0 && (isDepartmentHod || isPrivileged);
+  const canReplaceVendor = assignedVendors.length > 0 && (isDepartmentHod || isProcurementHead || isPrivileged);
   const canReturnForRevision = !!request.canApprove && !!user && ['FINANCE_DIRECTOR', 'GENERAL_MANAGER'].includes(user.role);
   const canCorrectVendors = Boolean(
     request.canCorrectVendors &&
@@ -236,9 +252,20 @@ export function WorkforceRequestPage() {
                 </button>
                 <button
                   disabled={busy}
-                  onClick={() => {
-                    const reason = rejectReason || prompt('Rejection reason') || undefined;
-                    run(() => api.rejectWorkforceRequest(request.id, reason));
+                  onClick={async () => {
+                    let reason = rejectReason.trim();
+                    if (!reason) {
+                      const entered = await dialog.prompt('Explain why this workforce request is being rejected.', {
+                        title: 'Reject request',
+                        confirmLabel: 'Reject request',
+                        tone: 'danger',
+                        placeholder: 'Rejection reason',
+                        required: true,
+                      });
+                      if (entered === null) return;
+                      reason = entered.trim();
+                    }
+                    await run(() => api.rejectWorkforceRequest(request.id, reason));
                   }}
                   className="btn-secondary text-red-600 disabled:opacity-50"
                 >
@@ -290,8 +317,7 @@ export function WorkforceRequestPage() {
                   <button disabled={busy} onClick={() => { setFinanceAction('cancel'); setFinanceActionComment(''); }} className="btn-secondary text-red-600 disabled:opacity-50">Cancel request</button>
                 </>
               )}
-              {request.status === 'SENT_TO_VENDOR' && (
-              <>
+              {request.status === 'SENT_TO_VENDOR' && (request.canCorrectVendors || request.canConfirmProcurement) && (
                 <button
                   disabled={busy}
                   onClick={() => run(() => api.resendWorkforceVendor(request.id))}
@@ -299,24 +325,7 @@ export function WorkforceRequestPage() {
                 >
                   Resend vendor email
                 </button>
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    run(() =>
-                      api.vendorAcceptWorkforceRequest(
-                        request.id,
-                        request.vendorMode === 'BROADCAST'
-                          ? request.broadcastVendorIds[0]
-                          : undefined
-                      )
-                    )
-                  }
-                  className="btn-primary disabled:opacity-50"
-                >
-                  Simulate Accept
-                </button>
-              </>
-            )}
+              )}
           </div>
         </div>
 
@@ -473,7 +482,7 @@ export function WorkforceRequestPage() {
 
             {request.invites && request.invites.length > 0 && (
               <div className="card p-5">
-                <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Vendor portal links</h3>
+                <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Vendor dispatch status</h3>
                 <ul className="space-y-2 text-sm">
                   {request.invites.map((inv) => (
                     <li key={inv.id} className="rounded-lg border border-gray-100 px-3 py-2">
@@ -482,14 +491,7 @@ export function WorkforceRequestPage() {
                           <div className="font-medium">{inv.vendor.name}</div>
                           <div className="text-xs text-gray-500">{inv.status}</div>
                         </div>
-                        <a
-                          href={inv.portalPath}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-medium text-hoterra-steel hover:underline"
-                        >
-                          Open portal
-                        </a>
+                        <span className="text-xs text-gray-400">Sent {formatDate(inv.sentAt)}</span>
                       </div>
                     </li>
                   ))}
@@ -635,13 +637,21 @@ export function WorkforceRequestPage() {
                     <h3 className="text-sm font-semibold text-hoterra-navy">Casual worker quality evaluation</h3>
                     <p className="mt-1 text-xs text-gray-500">Give one overall score from 1 (poor) to 5 (excellent). Five HOD scores of 3 or below within 30 days trigger an automatic vendor alert.</p>
                   </div>
-                  {canReplaceVendor && !request.vendor?.replacementRequested && (
+                  {canReplaceVendor && selectedEvaluationVendor && !selectedEvaluationVendor.replacementRequested && (
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => {
-                        const reason = prompt('Reason for replacing this vendor on the next order') || undefined;
-                        run(() => api.requestWorkforceVendorReplacement(request.id, reason));
+                      onClick={async () => {
+                        const reason = await dialog.prompt('Explain why this vendor should be replaced on the next order.', {
+                          title: 'Request vendor replacement',
+                          confirmLabel: 'Request replacement',
+                          tone: 'danger',
+                          placeholder: 'Replacement reason',
+                          required: true,
+                        });
+                        if (reason?.trim()) {
+                          await run(() => api.requestWorkforceVendorReplacement(request.id, selectedEvaluationVendor.id, reason.trim()));
+                        }
                       }}
                       className="btn-secondary text-red-600 disabled:opacity-50"
                     >
@@ -649,7 +659,7 @@ export function WorkforceRequestPage() {
                     </button>
                   )}
                 </div>
-                {request.vendor?.replacementRequested && (
+                {selectedEvaluationVendor?.replacementRequested && (
                   <div className="mb-4 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
                     This vendor is excluded from automatic selection for future orders until Procurement clears the replacement flag.
                   </div>
@@ -657,6 +667,12 @@ export function WorkforceRequestPage() {
                 {request.status !== 'COMPLETED' && (
                   <div className="space-y-4">
                     <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="text-sm">
+                        <span className="mb-1 block text-xs text-gray-500">Vendor</span>
+                        <select value={selectedEvaluationVendor?.id || ''} onChange={(e) => setEvaluation((value) => ({ ...value, vendorId: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                          {assignedVendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
+                        </select>
+                      </label>
                       <label className="text-sm">
                         <span className="mb-1 block text-xs text-gray-500">Overall score</span>
                         <select value={evaluation.overallScore} onChange={(e) => setEvaluation((value) => ({ ...value, overallScore: Number(e.target.value) }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
@@ -688,7 +704,7 @@ export function WorkforceRequestPage() {
                   <ul className="mt-5 space-y-2 border-t border-gray-100 pt-4">
                     {request.evaluations.map((item) => (
                       <li key={item.id} className="rounded-lg bg-gray-50 p-3 text-sm">
-                        <div className="flex flex-wrap justify-between gap-2"><strong>{item.phase === 'FINAL' ? 'Final' : 'Ongoing'} · {item.overallScore.toFixed(2)}/5</strong><span className="text-xs text-gray-500">{item.createdByName} · {formatDate(item.createdAt)}</span></div>
+                        <div className="flex flex-wrap justify-between gap-2"><strong>{item.vendor.name} · {item.phase === 'FINAL' ? 'Final' : 'Ongoing'} · {item.overallScore.toFixed(2)}/5</strong><span className="text-xs text-gray-500">{item.createdByName} · {formatDate(item.createdAt)}</span></div>
                         <div className="mt-1 text-xs text-gray-600">Overall service satisfaction: {item.overallScore}/5 · Rated by {ROLE_LABELS[item.createdByRole]}</div>
                         {item.notes && <div className="mt-1 text-gray-600">{item.notes}</div>}
                       </li>

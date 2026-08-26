@@ -26,22 +26,25 @@ import {
   LayoutTemplate,
   BarChart3,
   Check,
+  BriefcaseBusiness,
 } from 'lucide-react';
 import { Header, CreateDocumentButton } from '@/components/layout/Sidebar';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { api } from '@/lib/api';
 import type { DashboardStats } from '@/types';
 import { STATUS_LABELS } from '@/types';
-import { formatDate, timeAgo } from '@/lib/utils';
+import { cn, formatDate, timeAgo } from '@/lib/utils';
 import { CATEGORY_LABELS } from '@/types';
 import { NavLink, Link } from 'react-router-dom';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability, type Capability } from '@/modules/access-control';
 
 const CARD_CONFIG = [
-  { key: 'pendingApproval' as const, label: 'Documents for Approval', icon: FileCheck, iconColor: 'text-orange-600', iconBg: 'bg-orange-50', to: '/approvals' },
-  { key: 'overdue' as const, label: 'Overdue Documents', icon: AlertTriangle, iconColor: 'text-red-600', iconBg: 'bg-red-50', to: '/documents' },
-  { key: 'dueForReview' as const, label: 'Due for Review', icon: Clock, iconColor: 'text-yellow-600', iconBg: 'bg-yellow-50', to: '/documents' },
-  { key: 'published' as const, label: 'Published Documents', icon: CheckCircle, iconColor: 'text-green-600', iconBg: 'bg-green-50', to: '/documents' },
-  { key: 'archived' as const, label: 'Archived Documents', icon: Archive, iconColor: 'text-blue-600', iconBg: 'bg-blue-50', to: '/archive' },
+  { key: 'pendingApproval' as const, label: 'Documents for Approval', icon: FileCheck, iconColor: 'text-orange-600', iconBg: 'bg-orange-50', to: '/approvals', capability: 'approvals.read' },
+  { key: 'overdue' as const, label: 'Overdue Documents', icon: AlertTriangle, iconColor: 'text-red-600', iconBg: 'bg-red-50', to: '/documents', capability: 'documents.read' },
+  { key: 'dueForReview' as const, label: 'Due for Review', icon: Clock, iconColor: 'text-yellow-600', iconBg: 'bg-yellow-50', to: '/documents', capability: 'documents.read' },
+  { key: 'published' as const, label: 'Published Documents', icon: CheckCircle, iconColor: 'text-green-600', iconBg: 'bg-green-50', to: '/documents', capability: 'documents.read' },
+  { key: 'archived' as const, label: 'Archived Documents', icon: Archive, iconColor: 'text-blue-600', iconBg: 'bg-blue-50', to: '/archive', capability: 'documents.archive' },
 ];
 
 const STATUS_CHART_COLORS: Record<string, string> = {
@@ -57,16 +60,20 @@ const STATUS_CHART_COLORS: Record<string, string> = {
 };
 
 const QUICK_ACTIONS = [
-  { icon: FileText, label: 'Create Document', to: '/documents/create' },
-  { icon: Upload, label: 'Upload Document', to: '/documents/create' },
-  { icon: FileCheck, label: 'My Approvals', to: '/approvals' },
-  { icon: Search, label: 'Search Documents', to: '/search' },
-  { icon: LayoutTemplate, label: 'Document Templates', to: '/templates' },
-  { icon: BarChart3, label: 'Reports & Analytics', to: '/reports' },
-];
+  { icon: FileText, label: 'Create Document', to: '/documents/create', capability: 'documents.create' },
+  { icon: Upload, label: 'Upload Document', to: '/documents/create', capability: 'documents.create' },
+  { icon: FileCheck, label: 'My Approvals', to: '/approvals', capability: 'approvals.read' },
+  { icon: Search, label: 'Search Documents', to: '/search', capability: 'search.use' },
+  { icon: LayoutTemplate, label: 'Document Templates', to: '/templates', capability: 'templates.read' },
+  { icon: BarChart3, label: 'Reports & Analytics', to: '/reports', capability: 'reports.read' },
+] satisfies Array<{ icon: typeof FileText; label: string; to: string; capability: Capability }>;
 
 export function DashboardPage() {
+  const user = useAuthStore((state) => state.user);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const canReadDocuments = hasCapability(user, 'documents.read');
+  const visibleCards = CARD_CONFIG.filter((item) => hasCapability(user, item.capability as Capability));
+  const visibleQuickActions = QUICK_ACTIONS.filter((item) => hasCapability(user, item.capability));
 
   useEffect(() => {
     api.getDashboardStats().then(setStats).catch(console.error);
@@ -85,14 +92,14 @@ export function DashboardPage() {
     <div className="flex flex-1 flex-col overflow-hidden">
       <Header
         title="Dashboard"
-        subtitle="Overview of document management"
+        subtitle="Your work and hotel operations"
         showSearch
         action={<CreateDocumentButton />}
       />
 
       <div className="page-content">
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {CARD_CONFIG.map(({ key, label, icon, iconColor, iconBg, to }) => (
+          {visibleCards.map(({ key, label, icon, iconColor, iconBg, to }) => (
             <DashStatCard
               key={key}
               label={label}
@@ -105,7 +112,7 @@ export function DashboardPage() {
           ))}
         </div>
 
-        <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {canReadDocuments && <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="card p-5 lg:col-span-1">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Documents by Status</h3>
             <div className="relative h-56">
@@ -192,14 +199,68 @@ export function DashboardPage() {
               )}
             </div>
           </div>
-        </div>
+        </div>}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="card p-5 lg:col-span-1">
+          <div className="card p-5 lg:col-span-3">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-semibold text-hoterra-navy">My Work</h3>
+              <span className="text-xs text-gray-500">Items currently waiting for your action</span>
+            </div>
+            {(stats?.myWork ?? []).length === 0 ? (
+              <p className="rounded-lg bg-gray-50 px-4 py-5 text-center text-sm text-gray-400">
+                Nothing is waiting for your action.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {(stats?.myWork ?? []).map((item) => (
+                  <Link
+                    key={`${item.type}-${item.id}`}
+                    to={item.link}
+                    className="flex min-h-24 items-start gap-3 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-hoterra-steel/40 hover:shadow-sm"
+                  >
+                    <span className={cn(
+                      'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+                      item.type === 'WORKFORCE' ? 'bg-cyan-50 text-cyan-700' : 'bg-orange-50 text-orange-700',
+                    )}>
+                      {item.type === 'WORKFORCE'
+                        ? <BriefcaseBusiness className="h-5 w-5" />
+                        : <FileCheck className="h-5 w-5" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-hoterra-navy">{item.title}</span>
+                      <span className="mt-1 block line-clamp-2 text-xs text-gray-500">{item.subtitle}</span>
+                      <span className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-hoterra-steel">
+                          {item.action}
+                        </span>
+                        {item.dueDate && (
+                          <span className={cn(
+                            'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                            item.isOverdue
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-gray-100 text-gray-600',
+                          )}>
+                            {item.isOverdue ? 'Overdue' : 'Due'} · {formatDate(item.dueDate)}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {canReadDocuments && <div className="card p-5 lg:col-span-1">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Recent Activity</h3>
             <div className="space-y-4">
               {(stats?.recentActivity ?? []).slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-start gap-3">
+                <Link
+                  key={item.id}
+                  to={item.document ? `/documents/${item.document.id}` : '/documents'}
+                  className="flex items-start gap-3 rounded-lg p-1.5 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-hoterra-steel/30"
+                >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-semibold text-green-700">
                     {(item.userName ?? 'U').split(' ').map((n) => n[0]).join('').slice(0, 2)}
                   </div>
@@ -214,12 +275,15 @@ export function DashboardPage() {
                     <p className="text-xs text-gray-400">{timeAgo(item.createdAt)}</p>
                   </div>
                   <Check className="mt-1 h-4 w-4 shrink-0 text-green-500" />
-                </div>
+                </Link>
               ))}
+              {(stats?.recentActivity ?? []).length === 0 && (
+                <p className="py-4 text-center text-sm text-gray-400">No related document activity yet</p>
+              )}
             </div>
-          </div>
+          </div>}
 
-          <div className="card p-5 lg:col-span-1">
+          {canReadDocuments && <div className="card p-5 lg:col-span-1">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Document Trend</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
@@ -234,12 +298,12 @@ export function DashboardPage() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </div>}
 
           <div className="card p-5 lg:col-span-1">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Quick Actions</h3>
             <div className="grid grid-cols-2 gap-3">
-              {QUICK_ACTIONS.map(({ icon: Icon, label, to }) => (
+              {visibleQuickActions.map(({ icon: Icon, label, to }) => (
                 <NavLink
                   key={label}
                   to={to}

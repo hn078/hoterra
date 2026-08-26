@@ -25,12 +25,11 @@ const FEATURES = [
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgotMessage, setShowForgotMessage] = useState(false);
-  const [ssoMessage, setSsoMessage] = useState<string | null>(null);
   const [branding, setBranding] = useState<Awaited<ReturnType<typeof api.getPublicTenantBranding>> | null>(null);
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
@@ -48,7 +47,7 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, remember);
       navigate('/app');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -61,10 +60,10 @@ export function LoginPage() {
     <div className="relative flex min-h-screen bg-hoterra-offwhite bg-dot-grid">
       {/* Language selector */}
       <div className="absolute right-6 top-6 z-10">
-        <button className="btn-secondary gap-2 py-2 shadow-sm">
+        <div aria-label="Interface language: English" className="btn-secondary cursor-default gap-2 py-2 shadow-sm">
           <Globe className="h-4 w-4" />
           English
-        </button>
+        </div>
       </div>
 
       <div className="flex min-h-screen w-full flex-col lg:flex-row">
@@ -128,9 +127,9 @@ export function LoginPage() {
           </div>
 
           <div className="relative z-10 flex gap-6 text-xs text-white/50">
-            <span>ISO 27001</span>
-            <span>GDPR Compliant</span>
-            <span>Secure Cloud Storage</span>
+            <span>Tenant-isolated access</span>
+            <span>Audited activity</span>
+            <span>Controlled workflows</span>
           </div>
         </div>
 
@@ -229,32 +228,6 @@ export function LoginPage() {
                   {!loading && <ArrowRight className="h-4 w-4" />}
                 </button>
               </form>
-
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-gray-200" />
-                <span className="text-xs text-gray-400">or continue with</span>
-                <div className="h-px flex-1 bg-gray-200" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSsoMessage('Microsoft 365 SSO can be enabled in Settings → Integrations by your administrator.')}
-                  className="btn-secondary py-2.5 text-xs"
-                >
-                  Microsoft 365
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSsoMessage('Google SSO can be enabled in Settings → Integrations by your administrator.')}
-                  className="btn-secondary py-2.5 text-xs"
-                >
-                  Google
-                </button>
-              </div>
-              {ssoMessage && (
-                <p className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">{ssoMessage}</p>
-              )}
 
               <p className="mt-6 text-center text-xs text-gray-500">
                 Don&apos;t have an account?{' '}

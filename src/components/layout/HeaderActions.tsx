@@ -9,6 +9,7 @@ import {
   Settings,
   Shield,
   Workflow,
+  BriefcaseBusiness,
 } from 'lucide-react';
 import { CountBadge } from '@/components/ui/CountBadge';
 import { useNavBadges } from '@/hooks/useNavBadges';
@@ -16,6 +17,9 @@ import { api } from '@/lib/api';
 import type { DashboardStats, Notification } from '@/types';
 import { CATEGORY_LABELS } from '@/types';
 import { cn, formatDate, timeAgo } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 
 type Panel = 'calendar' | 'notifications' | 'messages';
 
@@ -25,6 +29,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, typeof Bell> = {
   system: Settings,
   security: Shield,
   template: FileText,
+  workforce: BriefcaseBusiness,
 };
 
 const NOTIFICATION_TYPE_COLORS: Record<string, string> = {
@@ -33,6 +38,7 @@ const NOTIFICATION_TYPE_COLORS: Record<string, string> = {
   system: 'bg-gray-100 text-gray-600',
   security: 'bg-red-100 text-red-600',
   template: 'bg-green-100 text-green-600',
+  workforce: 'bg-cyan-100 text-cyan-700',
 };
 
 function DropdownShell({
@@ -61,6 +67,11 @@ function EmptyState({ message }: { message: string }) {
 
 export function HeaderActions() {
   const navigate = useNavigate();
+  const dialog = useAppDialog();
+  const user = useAuthStore((state) => state.user);
+  const canViewCalendar = hasCapability(user, 'dashboard.view') && hasCapability(user, 'documents.read');
+  const canReadNotifications = hasCapability(user, 'notifications.read');
+  const canUseMessages = hasCapability(user, 'messages.use');
   const { notifications: notifCount, messages: msgCount, refresh: refreshBadges } = useNavBadges();
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -87,34 +98,34 @@ export function HeaderActions() {
   }, []);
 
   useEffect(() => {
-    if (openPanel !== 'notifications') return;
+    if (openPanel !== 'notifications' || !canReadNotifications) return;
     setNotifLoading(true);
     api
       .getNotifications()
       .then((items) => setNotifications(items.slice(0, 5)))
       .catch(console.error)
       .finally(() => setNotifLoading(false));
-  }, [openPanel]);
+  }, [openPanel, canReadNotifications]);
 
   useEffect(() => {
-    if (openPanel !== 'calendar') return;
+    if (openPanel !== 'calendar' || !canViewCalendar) return;
     setCalendarLoading(true);
     api
       .getDashboardStats()
       .then((stats) => setUpcomingReviews((stats.upcomingReviews ?? []).slice(0, 5)))
       .catch(console.error)
       .finally(() => setCalendarLoading(false));
-  }, [openPanel]);
+  }, [openPanel, canViewCalendar]);
 
   useEffect(() => {
-    if (openPanel !== 'messages') return;
+    if (openPanel !== 'messages' || !canUseMessages) return;
     setMessagesLoading(true);
     api
       .getConversations()
       .then((items) => setConversations(items.slice(0, 5)))
       .catch(console.error)
       .finally(() => setMessagesLoading(false));
-  }, [openPanel]);
+  }, [openPanel, canUseMessages]);
 
   const togglePanel = (panel: Panel) => {
     setOpenPanel((current) => (current === panel ? null : panel));
@@ -123,26 +134,37 @@ export function HeaderActions() {
   const closePanel = () => setOpenPanel(null);
 
   const handleNotificationClick = async (n: Notification) => {
-    if (!n.isRead) {
-      try {
-        await api.markNotificationRead(n.id);
-        setNotifications((prev) =>
-          prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
-        );
-        refreshBadges();
-      } catch (err) {
-        console.error(err);
+    try {
+      const result = await api.openNotification(n.id);
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+      );
+      refreshBadges();
+      closePanel();
+      if (result.state === 'AVAILABLE' && result.destination) {
+        navigate(result.destination);
+      } else if (result.state === 'COMPLETED' && result.destination) {
+        const completedBy = result.completedByName ? ` by ${result.completedByName}` : '';
+        const completedAt = result.completedAt ? ` on ${new Date(result.completedAt).toLocaleString()}` : '';
+        await dialog.alert(`This action was completed${completedBy}${completedAt}. The record will open in read-only context.`, {
+          title: 'Task completed',
+        });
+        navigate(result.destination);
+      } else {
+        await dialog.alert('This item is no longer available or you no longer have access to it.', {
+          title: 'Item unavailable',
+        });
       }
-    }
-    closePanel();
-    if (n.link) {
-      navigate(n.link);
+    } catch (err) {
+      await dialog.alert(err instanceof Error ? err.message : 'Notification could not be opened.', {
+        title: 'Notification unavailable',
+      });
     }
   };
 
   return (
     <div ref={containerRef} className="hidden items-center gap-2 lg:flex">
-      <div className="relative">
+      {canViewCalendar && <div className="relative">
         <button
           type="button"
           onClick={() => togglePanel('calendar')}
@@ -196,9 +218,9 @@ export function HeaderActions() {
             )}
           </DropdownShell>
         )}
-      </div>
+      </div>}
 
-      <div className="relative">
+      {canReadNotifications && <div className="relative">
         <button
           type="button"
           onClick={() => togglePanel('notifications')}
@@ -282,9 +304,9 @@ export function HeaderActions() {
             )}
           </DropdownShell>
         )}
-      </div>
+      </div>}
 
-      <div className="relative">
+      {canUseMessages && <div className="relative">
         <button
           type="button"
           onClick={() => togglePanel('messages')}
@@ -322,7 +344,7 @@ export function HeaderActions() {
                 {conversations.map((conv) => (
                   <li key={conv.id}>
                     <Link
-                      to="/messages"
+                      to={`/messages?conversation=${encodeURIComponent(conv.id)}`}
                       onClick={closePanel}
                       className={cn(
                         'block px-4 py-3 hover:bg-gray-50',
@@ -363,7 +385,7 @@ export function HeaderActions() {
             )}
           </DropdownShell>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

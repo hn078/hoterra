@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { DepartmentBadge } from '@/components/layout/Sidebar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { DocumentPreviewCanvas } from '@/components/documents/DocumentPreviewCanvas';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
@@ -109,6 +110,7 @@ export function ApprovalReviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
+  const dialog = useAppDialog();
   const [doc, setDoc] = useState<Document | null>(null);
   const [comment, setComment] = useState('');
   const [newComment, setNewComment] = useState('');
@@ -195,7 +197,7 @@ export function ApprovalReviewPage() {
     e.target.value = '';
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      alert('File exceeds maximum size of 10 MB');
+      await dialog.alert('File exceeds maximum size of 10 MB', { title: 'File too large' });
       return;
     }
     setAttachedDocument(null);
@@ -212,22 +214,28 @@ export function ApprovalReviewPage() {
 
   const handleSign = async () => {
     if (!id || !canSign) return;
-    const me = currentUser?.signatureImage ? currentUser : await api.getMe();
-    if (!me.signatureImage) {
-      alert('Upload your signature image in your profile before signing.');
+    const me = currentUser?.hasSignature ? currentUser : await api.getMe();
+    if (!me.hasSignature) {
+      await dialog.alert('Upload your signature image in your profile before signing.', { title: 'Signature required' });
       navigate(`/users/${me.id}`);
       return;
     }
-    const pin = prompt('Enter your signing PIN:');
+    const pin = await dialog.prompt('Enter your signing PIN:', {
+      title: 'Confirm document signature',
+      confirmLabel: 'Sign document',
+      inputType: 'password',
+      autoComplete: 'current-password',
+      required: true,
+    });
     if (!pin) return;
     setLoading(true);
     try {
       await api.signDocument(id, pin);
       const updated = await api.getDocument(id);
       setDoc(updated);
-      alert('Document signed successfully');
+      await dialog.alert('Document signed successfully', { title: 'Signed' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Signing failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Signing failed', { title: 'Signing failed' });
     } finally {
       setLoading(false);
     }
@@ -261,7 +269,7 @@ export function ApprovalReviewPage() {
       setAttachedDocument(null);
       setAttachedFile(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to post comment');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to post comment', { title: 'Comment not sent' });
     } finally {
       setPostingComment(false);
     }
@@ -279,7 +287,7 @@ export function ApprovalReviewPage() {
         const updated = await api.getDocument(id);
         setDoc(updated);
       }
-      alert(message);
+      await dialog.alert(message, { title: 'Action could not be completed' });
     } finally {
       setLoading(false);
     }
@@ -296,7 +304,7 @@ export function ApprovalReviewPage() {
 
   const handleDownloadFile = () => {
     closeMenu();
-    if (doc?.filePath?.startsWith('/uploads') && id) {
+    if (doc?.hasFile && doc.allowDownload !== false && id) {
       void api.downloadDocumentFile(id, doc.fileName || `${doc.code}.bin`);
     } else {
       window.print();
@@ -331,14 +339,19 @@ export function ApprovalReviewPage() {
   const handleArchive = async () => {
     if (!id || !doc) return;
     closeMenu();
-    const reason = prompt('Archive reason (optional):') ?? undefined;
+    const reason = await dialog.prompt('Archive reason (optional):', {
+      title: 'Archive document',
+      confirmLabel: 'Archive',
+      tone: 'danger',
+    });
+    if (reason === null) return;
     setArchiving(true);
     try {
       await api.archiveDocument(id, reason);
-      alert('Document archived');
+      await dialog.alert('Document archived', { title: 'Archived' });
       navigate('/archive');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to archive document');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to archive document', { title: 'Archive failed' });
     } finally {
       setArchiving(false);
     }
@@ -392,7 +405,7 @@ export function ApprovalReviewPage() {
               </button>
               {openMenu === 'download' && (
                 <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                  {doc.filePath?.startsWith('/uploads') && (
+                  {doc.hasFile && doc.allowDownload !== false && (
                     <MenuItem icon={Download} label="Download file" onClick={handleDownloadFile} />
                   )}
                   <MenuItem icon={Printer} label="Print / Save as PDF" onClick={handlePrint} />
@@ -964,13 +977,14 @@ function CommentFileCard({
   className?: string;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const dialog = useAppDialog();
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
       await api.downloadCommentAttachment(documentId, commentId, attachment.fileName);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Download failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Download failed', { title: 'Download failed' });
     } finally {
       setDownloading(false);
     }

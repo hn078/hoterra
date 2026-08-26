@@ -25,9 +25,12 @@ import {
 } from 'lucide-react';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { SwitchRow } from '@/components/ui/Switch';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import type { AuditLog, SystemSettings } from '@/types';
 import { formatDateTime } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 const CATEGORIES = [
   { id: 'general', icon: Building2, label: 'General', labelRu: 'Общие' },
@@ -43,6 +46,9 @@ const CATEGORIES = [
   { id: 'system', icon: Monitor, label: 'System', labelRu: 'Система' },
   { id: 'license', icon: Key, label: 'License', labelRu: 'Лицензия' },
 ];
+
+const BUSINESS_CATEGORY_IDS = new Set(['general', 'branding', 'signatures', 'numbering', 'notifications']);
+const SECURITY_CATEGORY_IDS = new Set(['security', 'storage', 'email', 'integrations', 'backup', 'system', 'license']);
 
 type Ext = Record<string, Record<string, unknown>>;
 
@@ -60,6 +66,10 @@ function getExt(settings: SystemSettings): Ext {
 }
 
 export function SettingsPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
+  const canManageBusiness = hasCapability(currentUser, 'settings.manage.business');
+  const canManageSecurity = hasCapability(currentUser, 'settings.manage.security');
   const [activeCategory, setActiveCategory] = useState('general');
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof api.getSettingsStats>> | null>(null);
@@ -71,11 +81,16 @@ export function SettingsPage() {
   const [showLogs, setShowLogs] = useState(false);
   const [slugStatus, setSlugStatus] = useState<'checking' | 'available' | 'taken' | 'invalid' | null>(null);
   const [brandingUploading, setBrandingUploading] = useState<'logo' | 'background' | null>(null);
+  const [indexHealth, setIndexHealth] = useState<Awaited<ReturnType<typeof api.getSearchIndexHealth>> | null>(null);
 
   useEffect(() => {
     api.getSettings().then(setSettings).catch(console.error);
     api.getSettingsStats().then(setStats).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (canManageSecurity) api.getSearchIndexHealth().then(setIndexHealth).catch(() => setIndexHealth(null));
+  }, [canManageSecurity]);
 
   useEffect(() => {
     const slug = settings?.tenantSlug?.trim().toLowerCase();
@@ -94,14 +109,21 @@ export function SettingsPage() {
 
   const visibleCategories = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return CATEGORIES;
-    return CATEGORIES.filter(
+    const allowed = CATEGORIES.filter((category) =>
+      canManageSecurity || BUSINESS_CATEGORY_IDS.has(category.id)
+    );
+    if (!q) return allowed;
+    return allowed.filter(
       (c) =>
         c.label.toLowerCase().includes(q) ||
         c.labelRu.toLowerCase().includes(q) ||
         c.id.includes(q)
     );
-  }, [searchQuery]);
+  }, [canManageSecurity, searchQuery]);
+
+  const canEditActiveCategory = BUSINESS_CATEGORY_IDS.has(activeCategory)
+    ? canManageBusiness
+    : SECURITY_CATEGORY_IDS.has(activeCategory) && canManageSecurity;
 
   const update = (key: keyof SystemSettings, value: unknown) => {
     if (!settings) return;
@@ -123,10 +145,12 @@ export function SettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!settings) return;
+    if (!settings || !canEditActiveCategory) return;
     setSaving(true);
     try {
-      const updated = await api.updateSettings(settings);
+      const updated = SECURITY_CATEGORY_IDS.has(activeCategory)
+        ? await api.updateSecuritySettings(settings)
+        : await api.updateSettings(settings);
       setSettings(updated);
       setSaved(true);
       api.getSettingsStats().then(setStats).catch(console.error);
@@ -135,20 +159,20 @@ export function SettingsPage() {
         window.location.href = `${updated.tenantUrl}/settings`;
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Save failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Save failed', { title: 'Settings not saved' });
     } finally {
       setSaving(false);
     }
   };
 
   const handleBrandingUpload = async (asset: 'logo' | 'background', file: File) => {
-    if (!settings) return;
+    if (!settings || !canManageBusiness) return;
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      alert('Please select a PNG, JPEG, or WebP image.');
+      await dialog.alert('Please select a PNG, JPEG, or WebP image.', { title: 'Unsupported image' });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      alert('Branding images must be 5 MB or smaller.');
+      await dialog.alert('Branding images must be 5 MB or smaller.', { title: 'Image too large' });
       return;
     }
     setBrandingUploading(asset);
@@ -157,60 +181,109 @@ export function SettingsPage() {
       setSettings({ ...settings, ...result });
       setSaved(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Branding image upload failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Branding image upload failed', { title: 'Upload failed' });
     } finally {
       setBrandingUploading(null);
     }
   };
 
   const handleBrandingRemove = async (asset: 'logo' | 'background') => {
-    if (!settings) return;
+    if (!settings || !canManageBusiness) return;
+    if (!await dialog.confirm(`Remove the custom login ${asset}?`, {
+      title: 'Remove branding image',
+      confirmLabel: 'Remove image',
+      tone: 'danger',
+    })) return;
     setBrandingUploading(asset);
     try {
       const result = await api.removeLoginBrandingAsset(asset);
       setSettings({ ...settings, ...result });
       setSaved(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Branding image could not be removed');
+      await dialog.alert(err instanceof Error ? err.message : 'Branding image could not be removed', { title: 'Remove failed' });
     } finally {
       setBrandingUploading(null);
     }
   };
 
   const handleClearCache = async () => {
+    if (!canManageSecurity) return;
+    if (!await dialog.confirm('Clear the application cache now?', {
+      title: 'Clear system cache',
+      confirmLabel: 'Clear cache',
+      tone: 'danger',
+    })) return;
     setMaintenanceLoading('cache');
     try {
       await api.clearSystemCache();
-      alert('System cache cleared');
+      await dialog.alert('System cache cleared', { title: 'Cache cleared' });
       api.getSettings().then(setSettings).catch(console.error);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to clear cache');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to clear cache', { title: 'Cache clear failed' });
     } finally {
       setMaintenanceLoading(null);
     }
   };
 
   const handleReindex = async () => {
+    if (!canManageSecurity) return;
+    if (!await dialog.confirm('Start a full search reindex? Search results may be briefly delayed.', {
+      title: 'Reindex search',
+      confirmLabel: 'Start reindex',
+    })) return;
     setMaintenanceLoading('reindex');
     try {
       const res = await api.reindexSearch();
-      alert(`Search reindexed (v${res.version})`);
+      await dialog.alert(
+        `${res.queued} file(s) queued; ${res.processed} processed immediately; ${res.remaining} remaining.`,
+        { title: res.status === 'UP_TO_DATE' ? 'Search index is up to date' : `Reindex started (v${res.version})` },
+      );
       api.getSettings().then(setSettings).catch(console.error);
+      api.getSearchIndexHealth().then(setIndexHealth).catch(console.error);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to reindex');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to reindex', { title: 'Reindex failed' });
+    } finally {
+      setMaintenanceLoading(null);
+    }
+  };
+
+  const handleIndexBatch = async () => {
+    if (!canManageSecurity) return;
+    setMaintenanceLoading('index-batch');
+    try {
+      const result = await api.runSearchIndexBatch();
+      await dialog.alert(`${result.processed} file(s) processed.`, { title: 'Index batch finished' });
+      setIndexHealth(await api.getSearchIndexHealth());
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Index batch failed', { title: 'Index maintenance failed' });
+    } finally {
+      setMaintenanceLoading(null);
+    }
+  };
+
+  const handleRetryFailedIndexes = async () => {
+    if (!canManageSecurity) return;
+    setMaintenanceLoading('index-retry');
+    try {
+      const result = await api.retryFailedSearchIndexes();
+      await dialog.alert(`${result.queued} failed file(s) queued; ${result.processed} processed immediately; ${result.remaining} remaining.`, { title: 'Retry started' });
+      setIndexHealth(await api.getSearchIndexHealth());
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Failed indexes could not be retried', { title: 'Retry failed' });
     } finally {
       setMaintenanceLoading(null);
     }
   };
 
   const handleViewLogs = async () => {
+    if (!canManageSecurity) return;
     setMaintenanceLoading('logs');
     try {
       const data = await api.getMaintenanceLogs();
       setLogs(data);
       setShowLogs(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to load logs');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to load logs', { title: 'Logs unavailable' });
     } finally {
       setMaintenanceLoading(null);
     }
@@ -340,11 +413,12 @@ export function SettingsPage() {
         <div className="min-h-0 flex-none bg-hoterra-page p-3 md:flex-1 md:overflow-y-auto md:p-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between md:mb-6">
             <h2 className="text-lg font-semibold text-hoterra-navy">{categoryTitle}</h2>
-            <button onClick={handleSave} disabled={saving} className="btn-primary w-full disabled:opacity-50 sm:w-auto">
+            {canEditActiveCategory && <button onClick={handleSave} disabled={saving} className="btn-primary w-full disabled:opacity-50 sm:w-auto">
               {saving ? 'Saving...' : saved ? 'Saved ✓' : 'Save Changes'}
-            </button>
+            </button>}
           </div>
 
+          <fieldset disabled={!canEditActiveCategory} className="min-w-0 border-0 p-0 disabled:opacity-75">
           {activeCategory === 'general' && (
             <>
               <SettingsSection title="Organization Information">
@@ -407,13 +481,6 @@ export function SettingsPage() {
                 <SwitchRow label="Allow downloading" checked={settings.allowDownload} onChange={(v) => update('allowDownload', v)} />
               </SettingsSection>
               <SettingsSection title="System Parameters">
-                <SettingsField label="Auto logout on inactivity">
-                  <select value={settings.autoLogoutMinutes} onChange={(e) => update('autoLogoutMinutes', parseInt(e.target.value))} className="input">
-                    <option value={15}>15 minutes</option>
-                    <option value={30}>30 minutes</option>
-                    <option value={60}>60 minutes</option>
-                  </select>
-                </SettingsField>
                 <SettingsField label="Records per page">
                   <select value={settings.recordsPerPage} onChange={(e) => update('recordsPerPage', parseInt(e.target.value))} className="input">
                     <option value={10}>10</option>
@@ -421,7 +488,6 @@ export function SettingsPage() {
                     <option value={50}>50</option>
                   </select>
                 </SettingsField>
-                <SwitchRow label="Two-factor authentication" checked={settings.enable2FA} onChange={(v) => update('enable2FA', v)} />
                 <SwitchRow label="Allow comments" checked={settings.allowComments} onChange={(v) => update('allowComments', v)} />
                 <SwitchRow label="Show tooltips" checked={settings.showTooltips} onChange={(v) => update('showTooltips', v)} />
               </SettingsSection>
@@ -452,7 +518,7 @@ export function SettingsPage() {
                         </div>
                       )}
                     </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    {canManageBusiness && <div className="mt-4 flex flex-wrap gap-2">
                       <label className={`btn-secondary cursor-pointer gap-2 ${brandingUploading ? 'pointer-events-none opacity-50' : ''}`}>
                         <Upload className="h-4 w-4" />
                         {brandingUploading === 'logo' ? 'Uploading...' : logoPreview ? 'Replace logo' : 'Upload logo'}
@@ -476,7 +542,7 @@ export function SettingsPage() {
                       >
                         <Trash2 className="h-4 w-4" /> Reset
                       </button>
-                    </div>
+                    </div>}
                   </div>
 
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -494,7 +560,7 @@ export function SettingsPage() {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-br from-hoterra-navy/70 to-hoterra-steel/35" />
                     </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    {canManageBusiness && <div className="mt-4 flex flex-wrap gap-2">
                       <label className={`btn-secondary cursor-pointer gap-2 ${brandingUploading ? 'pointer-events-none opacity-50' : ''}`}>
                         <Upload className="h-4 w-4" />
                         {brandingUploading === 'background' ? 'Uploading...' : backgroundPreview ? 'Replace background' : 'Upload background'}
@@ -518,7 +584,7 @@ export function SettingsPage() {
                       >
                         <Trash2 className="h-4 w-4" /> Reset
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 </div>
 
@@ -539,19 +605,20 @@ export function SettingsPage() {
               <SettingsField label="Minimum Password Length">
                 <input type="number" value={Number(security.minPasswordLength ?? 8)} onChange={(e) => updateExt('security', 'minPasswordLength', parseInt(e.target.value))} className="input" />
               </SettingsField>
-              <SettingsField label="Session Timeout (minutes)">
+              <SettingsField label="Session lifetime (minutes)">
                 <input type="number" value={Number(security.sessionTimeoutMinutes ?? 30)} onChange={(e) => updateExt('security', 'sessionTimeoutMinutes', parseInt(e.target.value))} className="input" />
+                <p className="mt-1 text-xs text-gray-500">Applied to newly issued login sessions. Existing sessions retain their original expiry.</p>
               </SettingsField>
-              <SwitchRow label="Enable 2FA" checked={Boolean(security.enable2FA ?? settings.enable2FA)} onChange={(v) => updateExt('security', 'enable2FA', v)} />
+              <SettingsField label="Two-factor authentication">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Not configured — connect an MFA/SSO provider before enforcement can be enabled.
+                </div>
+              </SettingsField>
               <SwitchRow label="Allow user self-registration" checked={Boolean(security.allowUserRegistration ?? false)} onChange={(v) => updateExt('security', 'allowUserRegistration', v)} />
-              <SettingsField label="IP Restrictions">
-                <textarea
-                  value={Array.isArray(security.ipRestrictions) ? (security.ipRestrictions as string[]).join('\n') : ''}
-                  onChange={(e) => updateExt('security', 'ipRestrictions', e.target.value.split('\n').filter(Boolean))}
-                  rows={3}
-                  className="input font-mono text-xs"
-                  placeholder="One CIDR per line"
-                />
+              <SettingsField label="IP restrictions">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Not configured — no CIDR allowlist is currently enforced.
+                </div>
               </SettingsField>
             </SettingsSection>
           )}
@@ -683,6 +750,7 @@ export function SettingsPage() {
           )}
 
           {activeCategory === 'system' && (
+            <div className="space-y-4">
             <SettingsSection title="System Configuration">
               <SwitchRow label="Maintenance mode" checked={Boolean(system.maintenanceMode ?? false)} onChange={(v) => updateExt('system', 'maintenanceMode', v)} />
               <SwitchRow label="Enable reCAPTCHA" checked={Boolean(system.enableRecaptcha ?? false)} onChange={(v) => updateExt('system', 'enableRecaptcha', v)} />
@@ -701,6 +769,46 @@ export function SettingsPage() {
                 </SettingsField>
               )}
             </SettingsSection>
+            {canManageSecurity && (
+              <SettingsSection title="Document Search Index Health">
+                {!indexHealth ? (
+                  <p className="text-sm text-gray-500">Loading index health…</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {[
+                        ['Ready', indexHealth.ready, 'text-emerald-700 bg-emerald-50'],
+                        ['Pending', indexHealth.pending + indexHealth.missing, 'text-blue-700 bg-blue-50'],
+                        ['Failed', indexHealth.failed, 'text-red-700 bg-red-50'],
+                        ['OCR required', indexHealth.ocrRequired, 'text-amber-700 bg-amber-50'],
+                      ].map(([label, value, color]) => (
+                        <div key={String(label)} className={`rounded-lg p-3 ${color}`}>
+                          <p className="text-xs">{label}</p>
+                          <p className="mt-1 text-xl font-semibold">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {indexHealth.totalFiles} private file(s): {indexHealth.primary} primary, {indexHealth.attachments} attachments.
+                      {indexHealth.lastIndexedAt ? ` Last indexed ${formatDateTime(indexHealth.lastIndexedAt)}.` : ''}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => void handleIndexBatch()} disabled={maintenanceLoading !== null} className="btn-secondary min-h-10 text-xs disabled:opacity-50">
+                        {maintenanceLoading === 'index-batch' ? 'Processing…' : 'Run pending batch'}
+                      </button>
+                      <button type="button" onClick={() => void handleRetryFailedIndexes()} disabled={maintenanceLoading !== null || indexHealth.failed === 0} className="btn-secondary min-h-10 text-xs disabled:opacity-50">
+                        {maintenanceLoading === 'index-retry' ? 'Retrying…' : 'Retry failed'}
+                      </button>
+                      <button type="button" onClick={() => void handleReindex()} disabled={maintenanceLoading !== null} className="btn-secondary min-h-10 text-xs disabled:opacity-50">
+                        {maintenanceLoading === 'reindex' ? 'Queuing…' : 'Full reindex'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">OCR-required and unsupported files are not retried until an approved OCR/conversion provider is configured.</p>
+                  </>
+                )}
+              </SettingsSection>
+            )}
+            </div>
           )}
 
           {activeCategory === 'license' && (
@@ -719,15 +827,16 @@ export function SettingsPage() {
               </SettingsField>
             </SettingsSection>
           )}
+          </fieldset>
         </div>
 
-        <aside className="w-full shrink-0 overflow-y-auto border-t border-gray-200 bg-hoterra-page p-3 md:w-80 md:border-l md:border-t-0 md:p-5">
+        {canManageSecurity && <aside className="w-full shrink-0 overflow-y-auto border-t border-gray-200 bg-hoterra-page p-3 md:w-80 md:border-l md:border-t-0 md:p-5">
           <SettingsSideCard title="Security Settings" action="Manage" onAction={() => setActiveCategory('security')}>
             {[
               { label: 'Password Policy', value: String(security.passwordPolicy ?? 'Strong') },
               { label: 'Session Timeout', value: `${security.sessionTimeoutMinutes ?? 30} min` },
-              { label: '2FA', value: (security.enable2FA ?? settings.enable2FA) ? 'Enabled' : 'Disabled' },
-              { label: 'IP Restrictions', value: `${Array.isArray(security.ipRestrictions) ? (security.ipRestrictions as string[]).length : 0} allowed` },
+              { label: '2FA', value: 'Not configured' },
+              { label: 'IP Restrictions', value: 'Not configured' },
             ].map((row) => (
               <SideRow key={row.label} label={row.label} value={row.value} onClick={() => setActiveCategory('security')} />
             ))}
@@ -766,7 +875,7 @@ export function SettingsPage() {
               </div>
             </div>
           </SettingsSideCard>
-        </aside>
+        </aside>}
       </div>
 
       <div className="flex items-start gap-3 border-t border-blue-100 bg-blue-50 px-6 py-3 text-sm text-blue-800">

@@ -21,7 +21,7 @@ Tenant məlumatları aşağıdakı müdafiə qatlarından keçir:
 5. Bütün tenant cədvəllərində `FORCE ROW LEVEL SECURITY` yalnız həmin tenant-a icazə verir.
 6. Foreign key-lər və tenant relation trigger-ləri cross-tenant əlaqəni bloklayır.
 
-Runtime `DATABASE_URL` PostgreSQL superuser ola bilməz. Backend production startup bunu yoxlayır və təhlükəli konfiqurasiya ilə açılmır.
+Runtime `DATABASE_URL` PostgreSQL superuser və ya `BYPASSRLS` rolu ola bilməz. Runtime system client `__system__` sentinel context-i ilə tenant cədvəllərində heç bir sətir görmür; yalnız RLS-siz tenant registry və database health metadata-sı üçün istifadə edilir. `*` wildcard tenant context artıq policy-lərdə qəbul edilmir. Backend production startup bunu yoxlayır və təhlükəli konfiqurasiya ilə açılmır.
 
 ## Slug idarəetməsi
 
@@ -43,13 +43,16 @@ DATABASE_URL=<non-superuser-runtime-connection>
 TENANT_DB_CONNECTION_LIMIT=3
 ```
 
+Runtime bağlantısını real olaraq yoxlamaq üçün `npm run test:tenant-isolation` local/CI disposable PostgreSQL üzərində işlədilir. Skript ayrı admin bağlantısı ilə müvəqqəti tenant yaradır, məhdud runtime bağlantısı ilə Department/User/UserNotificationPreference/Document/Workforce və `__system__` sentinel sızmalarını yoxlayır, sonra fixture-ləri silir. Remote staging üçün `TENANT_ISOLATION_ALLOW_REMOTE=true` explicit opt-in tələb olunur; production əsas bazasında işlədilməməlidir.
+
 Deploy ardıcıllığı:
 
 1. Railway pre-deploy `npm run db:migrate:deploy` icra edir.
 2. Legacy deployment olarsa tenant backfill və baseline təhlükəsiz şəkildə hazırlanır.
 3. `prisma migrate deploy` yalnız versionlanmış PostgreSQL migration-larını tətbiq edir.
-4. Backend `migrateTenants` idempotent yoxlamasından sonra açılır.
-5. Railway `/api/ready` ilə database readiness-i yoxlayır.
+4. Migration və legacy backfill yalnız admin bağlantılı pre-deploy mərhələsində bitir.
+5. Backend runtime heç bir schema/data migration icra etmədən restricted role ilə açılır.
+6. Railway `/api/ready` ilə database readiness-i yoxlayır.
 
 Production startup-da `prisma db push` və data-loss flag-ləri istifadə edilmir.
 

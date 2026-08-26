@@ -28,10 +28,10 @@ Full audit of UI actions, API wiring, navigation, and design alignment against `
 | Users | ✅ | List/profile from DB; create user |
 | Roles matrix | ✅ | `GET /api/roles` — user counts from DB |
 | Workflows | ✅ | List/create/edit (steps JSON) |
-| Search | ✅ | Full-text + server filters (dept, category, status, fileType) |
+| Search | ✅ | Security-trimmed metadata/content + tenant-private primary/attachment TXT/CSV/PDF/DOCX/XLSX extraction; bounded backfill, server filters, OCR-required state, and metadata-safe System Administrator health/retry controls |
 | Reports | ✅ | KPIs, trend, by category/dept, activity timeline from DB |
-| Archive | ✅ | Archived docs from DB; restore, permanent delete, export |
-| Audit log | ✅ | Paginated from DB; search/filter/export CSV |
+| Archive | ✅ | Records Management: restore, retention/legal hold, four-eyes disposition, tombstone evidence and export |
+| Audit log | ✅ | Paginated search/filter/CSV; tenant SHA-256 evidence chain, runtime append-only grants, access auditing, aggregate verification and independently verifiable JSON evidence export |
 | Notifications | ✅ | List, mark read, mark all read; prefs in SystemSettings |
 | Settings | ✅ | General + notification prefs persisted |
 

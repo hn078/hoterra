@@ -27,18 +27,19 @@ class ApiClient {
     return `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
-  setToken(token: string | null) {
+  setToken(token: string | null, remember = false) {
     this.token = token;
+    localStorage.removeItem('hoterra_token');
+    sessionStorage.removeItem('hoterra_token');
     if (token) {
-      localStorage.setItem('hoterra_token', token);
-    } else {
-      localStorage.removeItem('hoterra_token');
+      const storage = remember ? localStorage : sessionStorage;
+      storage.setItem('hoterra_token', token);
     }
   }
 
   getToken(): string | null {
     if (!this.token) {
-      this.token = localStorage.getItem('hoterra_token');
+      this.token = sessionStorage.getItem('hoterra_token') || localStorage.getItem('hoterra_token');
     }
     return this.token;
   }
@@ -86,8 +87,9 @@ class ApiClient {
     return this.request('/auth/logout', { method: 'POST' });
   }
 
-  getDepartments() {
-    return this.request<import('@/types').Department[]>('/departments');
+  getDepartments(options?: { includeInactive?: boolean }) {
+    const suffix = options?.includeInactive ? '?includeInactive=true' : '';
+    return this.request<import('@/types').Department[]>(`/departments${suffix}`);
   }
 
   getDocuments(params?: Record<string, string>) {
@@ -130,7 +132,7 @@ class ApiClient {
   }
 
   getDashboardStats() {
-    return this.request<import('@/types').DashboardStats>('/documents/stats');
+    return this.request<import('@/types').DashboardStats>('/dashboard/stats');
   }
 
   getTemplates() {
@@ -146,6 +148,9 @@ class ApiClient {
     description?: string;
     category: string;
     content?: string;
+    version?: string;
+    status?: string;
+    departmentId?: string | null;
     signaturePlacement?: unknown;
     pageCount?: number;
   }) {
@@ -173,13 +178,63 @@ class ApiClient {
     });
   }
 
+  getArchive(params?: { search?: string; module?: 'ALL' | 'Document' | 'Template'; page?: number; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.module) query.set('module', params.module);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    return this.request<{
+      data: import('@/types').ArchiveItem[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+      stats: { total: number; documents: number; templates: number; storageBytes: number; thisMonth: number; legalHolds: number; pendingDispositions: number; disposed: number };
+    }>(`/archive?${query.toString()}`);
+  }
+
+  getRetentionPolicies() {
+    return this.request<import('@/types').RetentionPolicy[]>('/archive/retention-policies');
+  }
+
+  saveRetentionPolicy(data: { name: string; description?: string; category?: string | null; retentionDays: number; isDefault?: boolean; isActive?: boolean }, id?: string) {
+    return this.request<import('@/types').RetentionPolicy>(id ? `/archive/retention-policies/${id}` : '/archive/retention-policies', {
+      method: id ? 'PATCH' : 'POST', body: JSON.stringify(data),
+    });
+  }
+
+  updateDocumentRetention(documentId: string, retentionUntil: string, policyId?: string | null) {
+    return this.request(`/archive/documents/${documentId}/retention`, { method: 'PATCH', body: JSON.stringify({ retentionUntil, policyId }) });
+  }
+
+  setDocumentLegalHold(documentId: string, active: boolean, reason: string) {
+    return this.request(`/archive/documents/${documentId}/legal-hold`, { method: 'POST', body: JSON.stringify({ active, reason }) });
+  }
+
+  requestDocumentDisposition(documentId: string, reason: string) {
+    return this.request(`/archive/documents/${documentId}/disposition`, { method: 'POST', body: JSON.stringify({ reason }) });
+  }
+
+  reviewDocumentDisposition(requestId: string, decision: 'APPROVE' | 'REJECT', comment?: string) {
+    return this.request(`/archive/dispositions/${requestId}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) });
+  }
+
+  restoreTemplate(id: string) {
+    return this.request<import('@/types').Template>(`/templates/${id}/restore`, { method: 'POST' });
+  }
+
+  updateSecuritySettings(data: Partial<import('@/types').SystemSettings>) {
+    return this.request<import('@/types').SystemSettings>('/settings/security', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   getUsers() {
     return this.request<import('@/types').User[]>('/users');
   }
 
   getUser(id: string) {
     return this.request<import('@/types').User & {
-      signatureImage?: string | null;
+      hasSignature?: boolean;
       createdAt: string;
       counts: { documents: number; signatures: number; auditLogs: number };
       recentActivity: import('@/types').AuditLog[];
@@ -230,6 +285,17 @@ class ApiClient {
     }>(`/audit?${qs}`);
   }
 
+  verifyAuditIntegrity() {
+    return this.request<{
+      status: 'VERIFIED' | 'BROKEN' | 'EMPTY';
+      total: number;
+      broken: number;
+      lastSequence: number;
+      anchor: string | null;
+      verifiedAt: string;
+    }>('/audit/integrity', { method: 'POST' });
+  }
+
   exportAuditLogs(params?: {
     search?: string;
     action?: string;
@@ -257,6 +323,25 @@ class ApiClient {
     if (params?.to) qs.set('to', params.to);
     const suffix = qs.toString();
     return this.download(`/audit/export${suffix ? `?${suffix}` : ''}`, 'audit-log.csv');
+  }
+
+  exportAuditEvidence(params?: {
+    search?: string;
+    action?: string;
+    entityType?: string;
+    userId?: string;
+    departmentId?: string;
+    category?: string;
+    templateId?: string;
+    module?: string;
+    severity?: string;
+    from?: string;
+    to?: string;
+  }) {
+    const qs = new URLSearchParams();
+    Object.entries(params ?? {}).forEach(([key, value]) => { if (value) qs.set(key, value); });
+    const suffix = qs.toString();
+    return this.download(`/audit/export/evidence${suffix ? `?${suffix}` : ''}`, 'audit-evidence.json');
   }
 
   private async download(path: string, filename: string) {
@@ -351,12 +436,18 @@ class ApiClient {
       departments: import('@/types').Department[];
       templates: import('@/types').Template[];
       workflows: import('@/types').WorkflowItem[];
+      workforce: import('@/types').WorkforceSearchResult[];
       total: number;
     }>(`/search?${params}`);
   }
 
-  getReports() {
+  getReports(params?: { from?: string; to?: string; compare?: 'previous' | 'year' | 'none' }) {
+    const query = new URLSearchParams();
+    if (params?.from) query.set('from', params.from);
+    if (params?.to) query.set('to', params.to);
+    if (params?.compare) query.set('compare', params.compare);
     return this.request<{
+      period: { from: string; to: string; compare: string; compareFrom: string | null; compareTo: string | null };
       kpis: {
         totalDocuments: number;
         newDocuments: number;
@@ -367,11 +458,22 @@ class ApiClient {
         archived: number;
         published: number;
       };
-      byDepartment: { name: string; count: number; color?: string }[];
-      trend: { month: string; created: number; published: number }[];
+      comparison: { newDocuments: number | null; completedApprovals: number | null };
+      byDepartment: { id: string; name: string; count: number; color?: string }[];
+      trend: { bucket: string; created: number; approvalActions: number; storageBytes: number; storageGb: number }[];
       byCategory: { category: string; count: number }[];
-      activityTimeline: import('@/types').AuditLog[];
-    }>('/reports');
+      approvalPerformance: { approved: number; rejected: number; returned: number };
+      activityTimeline: Array<{ id: string; action: string; userName?: string | null; createdAt: string; document: { id: string; title: string; code: string } }>;
+      warnings: string[];
+    }>(`/reports?${query.toString()}`);
+  }
+
+  exportReports(params?: { from?: string; to?: string; compare?: 'previous' | 'year' | 'none' }) {
+    const query = new URLSearchParams();
+    if (params?.from) query.set('from', params.from);
+    if (params?.to) query.set('to', params.to);
+    if (params?.compare) query.set('compare', params.compare);
+    return this.download(`/reports/export.csv?${query.toString()}`, 'document-analytics.csv');
   }
 
   getRoles() {
@@ -382,6 +484,7 @@ class ApiClient {
         description: string;
         userCount: number;
         isSystem: boolean;
+        isActive: boolean;
         baseRole?: import('@/types').Role;
         permissions: Record<string, boolean[]>;
       }>;
@@ -462,11 +565,20 @@ class ApiClient {
     return this.request(`/roles/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
+  deactivateRole(id: string) {
+    return this.request<{ ok: boolean; id: string }>(`/roles/${id}`, { method: 'DELETE' });
+  }
+
+  reactivateRole(id: string) {
+    return this.request<{ ok: boolean; id: string }>(`/roles/${id}/activate`, { method: 'POST' });
+  }
+
   createUser(data: {
     email: string;
     password: string;
     firstName: string;
     lastName: string;
+    jobTitle: string;
     role: string;
     customRoleId?: string;
     departmentId?: string;
@@ -539,6 +651,29 @@ class ApiClient {
     return this.request(`/notifications/${id}/read`, { method: 'PATCH' });
   }
 
+  getUserResponsibilities(id: string) {
+    return this.request<{ total: number; actionNotifications: number; documentRevisions: number }>(
+      `/users/${id}/responsibilities`,
+    );
+  }
+
+  openNotification(id: string) {
+    return this.request<import('@/types').NotificationOpenResult>(`/notifications/${id}/open`, {
+      method: 'POST',
+    });
+  }
+
+  getNotificationPreferences() {
+    return this.request<import('@/types').NotificationPreferences>('/notifications/preferences');
+  }
+
+  updateNotificationPreferences(emailEnabled: boolean) {
+    return this.request<import('@/types').NotificationPreferences>('/notifications/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ emailEnabled }),
+    });
+  }
+
   getNotifications() {
     return this.request<import('@/types').Notification[]>('/notifications');
   }
@@ -577,7 +712,44 @@ class ApiClient {
   }
 
   reindexSearch() {
-    return this.request<{ ok: boolean; reindexedAt: string; version: number }>('/settings/maintenance/reindex', { method: 'POST' });
+    return this.request<{
+      ok: boolean;
+      reindexedAt: string;
+      version: number;
+      queued: number;
+      processed: number;
+      remaining: number;
+      status: 'RUNNING' | 'UP_TO_DATE';
+    }>('/settings/maintenance/reindex', { method: 'POST' });
+  }
+
+  getSearchIndexHealth() {
+    return this.request<{
+      totalFiles: number;
+      indexedRows: number;
+      missing: number;
+      ready: number;
+      pending: number;
+      failed: number;
+      ocrRequired: number;
+      unsupported: number;
+      empty: number;
+      primary: number;
+      attachments: number;
+      lastIndexedAt: string | null;
+      lastChangedAt: string | null;
+    }>('/settings/maintenance/search-index');
+  }
+
+  retryFailedSearchIndexes() {
+    return this.request<{ ok: boolean; queued: number; processed: number; remaining: number; status: 'RUNNING' | 'UP_TO_DATE' }>(
+      '/settings/maintenance/search-index/retry-failed',
+      { method: 'POST' },
+    );
+  }
+
+  runSearchIndexBatch() {
+    return this.request<{ ok: boolean; processed: number }>('/settings/maintenance/search-index/run', { method: 'POST' });
   }
 
   getMaintenanceLogs() {
@@ -629,8 +801,27 @@ class ApiClient {
     return this.request(`/favorites/${documentId}`, { method: 'DELETE' });
   }
 
-  getConversations() {
+  async getConversations() {
+    await this.request('/conversations/bootstrap', { method: 'POST' });
     return this.request<import('@/types').Conversation[]>('/conversations');
+  }
+
+  getDepartmentLifecycle(id: string) {
+    return this.request<import('@/types').DepartmentLifecycleSummary>(`/departments/${id}/lifecycle`);
+  }
+
+  deactivateDepartment(id: string, data: { reason: string; transferDepartmentId?: string }) {
+    return this.request<import('@/types').Department>(`/departments/${id}/deactivate`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  reactivateDepartment(id: string, reason: string) {
+    return this.request<import('@/types').Department>(`/departments/${id}/reactivate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
   }
 
   getConversationMessages(conversationId: string, params?: { before?: string; limit?: number }) {
@@ -678,6 +869,10 @@ class ApiClient {
     return this.request<{ count: number }>('/conversations/unread-count');
   }
 
+  getMessageContacts() {
+    return this.request<import('@/types').MessageContact[]>('/conversations/contacts');
+  }
+
   getWorkforceMeta() {
     return this.request<import('@/types').WorkforceMeta>('/workforce/meta');
   }
@@ -719,20 +914,6 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
-  }
-
-  vendorAcceptWorkforceRequest(id: string, vendorId?: string) {
-    return this.request<import('@/types').WorkforceRequest>(
-      `/workforce/requests/${id}/vendor-accept`,
-      { method: 'POST', body: JSON.stringify({ vendorId }) }
-    );
-  }
-
-  vendorDeclineWorkforceRequest(id: string, reason?: string) {
-    return this.request<import('@/types').WorkforceRequest>(
-      `/workforce/requests/${id}/vendor-decline`,
-      { method: 'POST', body: JSON.stringify({ reason }) }
-    );
   }
 
   submitWorkforceCompletion(
@@ -833,6 +1014,7 @@ class ApiClient {
   createWorkforceEvaluation(
     id: string,
     data: {
+      vendorId: string;
       phase: 'ONGOING' | 'FINAL';
       overallScore: number;
       notes?: string;
@@ -868,10 +1050,10 @@ class ApiClient {
     );
   }
 
-  requestWorkforceVendorReplacement(id: string, reason?: string) {
+  requestWorkforceVendorReplacement(id: string, vendorId: string, reason: string) {
     return this.request<import('@/types').WorkforceRequest>(
       `/workforce/requests/${id}/request-replacement`,
-      { method: 'POST', body: JSON.stringify({ reason }) }
+      { method: 'POST', body: JSON.stringify({ vendorId, reason }) }
     );
   }
 
@@ -1002,8 +1184,13 @@ class ApiClient {
         id: string;
         toEmail: string;
         subject: string;
-        body: string;
+        entityType: string | null;
+        entityId: string | null;
         status: string;
+        attempts: number;
+        lastError: string | null;
+        nextAttemptAt: string | null;
+        sentAt: string | null;
         createdAt: string;
       }[]
     >('/workforce/outbox');
@@ -1011,7 +1198,6 @@ class ApiClient {
 
   getVendorOrder(token: string) {
     return this.request<{
-      token: string;
       inviteStatus: string;
       expiresAt: string;
       canRespond: boolean;
@@ -1020,14 +1206,20 @@ class ApiClient {
         code: string;
         hotelName: string;
         department: string;
-        position: string;
-        workDate: string;
-        shift: string;
-        startTime?: string | null;
-        endTime?: string | null;
-        quantity: number;
+        startDate: string;
+        endDate: string;
         comment?: string | null;
         status: string;
+        items: {
+          id: string;
+          position: string;
+          unit?: string | null;
+          quantity: number;
+          hours?: number | null;
+          unitRate?: number | null;
+          currency: string;
+          estimatedCost?: number | null;
+        }[];
       };
     }>(`/vendor/order/${token}`);
   }

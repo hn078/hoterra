@@ -3,6 +3,7 @@ import jwt, { type JwtPayload, type SignOptions } from 'jsonwebtoken';
 import { Role } from '@prisma/client';
 import { runtimeConfig } from '../config';
 import { prisma } from '../db';
+import { resolveEffectiveCapabilities, type Capability } from '../modules/access-control';
 
 export interface AuthUser {
   id: string;
@@ -11,7 +12,10 @@ export interface AuthUser {
   role: Role;
   firstName: string;
   lastName: string;
+  jobTitle?: string | null;
   departmentId?: string | null;
+  customRoleId?: string | null;
+  capabilities: Capability[];
 }
 
 declare global {
@@ -22,15 +26,19 @@ declare global {
   }
 }
 
-type TokenClaims = JwtPayload & { tenantId?: string };
+type TokenClaims = JwtPayload & { tenantId?: string; version?: number };
 
-export function signToken(user: AuthUser): string {
+export function signToken(
+  user: AuthUser,
+  tokenVersion: number,
+  expiresIn: SignOptions['expiresIn'] = runtimeConfig.jwtExpiresIn as SignOptions['expiresIn'],
+): string {
   return jwt.sign(
-    { tenantId: user.tenantId },
+    { tenantId: user.tenantId, version: tokenVersion },
     runtimeConfig.jwtSecret,
     {
       algorithm: 'HS256',
-      expiresIn: runtimeConfig.jwtExpiresIn as SignOptions['expiresIn'],
+      expiresIn,
       issuer: 'hoterra-api',
       audience: 'hoterra-web',
       subject: user.id,
@@ -55,8 +63,11 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       return res.status(401).json({ error: 'Token is not valid for this hotel workspace' });
     }
 
-    const currentUser = await prisma.user.findUnique({ where: { id: claims.sub } });
-    if (!currentUser?.isActive) {
+    const currentUser = await prisma.user.findUnique({
+      where: { id: claims.sub },
+      include: { customRole: { select: { permissions: true, isActive: true } } },
+    });
+    if (!currentUser?.isActive || claims.version !== currentUser.tokenVersion) {
       return res.status(401).json({ error: 'Account is no longer active' });
     }
     req.user = {
@@ -66,7 +77,10 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       role: currentUser.role,
       firstName: currentUser.firstName,
       lastName: currentUser.lastName,
+      jobTitle: currentUser.jobTitle,
       departmentId: currentUser.departmentId,
+      customRoleId: currentUser.customRoleId,
+      capabilities: resolveEffectiveCapabilities(currentUser.role, currentUser.customRole),
     };
     next();
   } catch {
@@ -81,30 +95,4 @@ export function requireRoles(...roles: Role[]) {
     }
     next();
   };
-}
-
-const VIEW_ALL_ROLES: Role[] = [
-  Role.GENERAL_MANAGER,
-  Role.SYSTEM_ADMINISTRATOR,
-  Role.FINANCE_DIRECTOR,
-];
-
-const MANAGE_DOC_ROLES: Role[] = [
-  Role.SUPERVISOR,
-  Role.HOD,
-  Role.GENERAL_MANAGER,
-  Role.SYSTEM_ADMINISTRATOR,
-];
-
-export function canViewAllDocuments(role: Role): boolean {
-  return VIEW_ALL_ROLES.includes(role);
-}
-
-export function canViewDocument(user: AuthUser, document: { departmentId: string }): boolean {
-  if (canViewAllDocuments(user.role)) return true;
-  return document.departmentId === user.departmentId;
-}
-
-export function canManageDocuments(role: Role): boolean {
-  return MANAGE_DOC_ROLES.includes(role);
 }

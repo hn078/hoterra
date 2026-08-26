@@ -58,7 +58,7 @@ sequenceDiagram
     API-->>Web: Tenant-a məxsus cavab
 ```
 
-Login-dən sonra JWT-də `tenantId` saxlanılır. JWT tenant-ı ilə hostname/header tenant-ı uyğun gəlməzsə sorğu rədd edilir. İstifadəçinin aktivliyi və cari rolu hər qorunan sorğuda database-dən yenidən yoxlanılır.
+Login-dən sonra JWT-də `tenantId` və istifadəçinin `tokenVersion` dəyəri saxlanılır. JWT tenant-ı ilə hostname/header tenant-ı uyğun gəlməzsə sorğu rədd edilir. İstifadəçinin aktivliyi, cari rolu və token versiyası hər qorunan sorğuda database-dən yenidən yoxlanılır. Logout və parol reseti `tokenVersion` dəyərini artıraraq əvvəl verilmiş bütün bearer tokenləri server tərəfində etibarsız edir.
 
 Login branding tenant-a məxsus `SystemSettings.loginLogoPath` və `SystemSettings.loginBackgroundPath` sahələrində saxlanılır. Login-dən əvvəl yalnız aktiv tenant-ın hazırda seçilmiş iki şəkli public branding endpointindən oxuna bilər; ümumi upload qovluğu açıq deyil.
 
@@ -81,6 +81,7 @@ flowchart TD
 - RLS policy yalnız `current_setting('hoterra.tenant_id')` ilə eyni tenant sətirlərinə icazə verir.
 - Runtime rolu PostgreSQL superuser ola bilməz; backend production startup zamanı bunu yoxlayır.
 - Cross-tenant `departmentId`, `userId`, `vendorId` kimi əlaqələri ayrıca database trigger-ləri bloklayır.
+- Şəxsi notification preference əlaqəsi composite `(tenantId, userId) → User(tenantId, id)` foreign key-i ilə başqa tenant user-inə bağlana bilmir.
 - Migration/system bağlantısında kontrollu `hoterra.tenant_id=*` istifadə olunur.
 
 ## 5. Ümumi tenant sxemi
@@ -95,12 +96,14 @@ erDiagram
     TENANT ||--o{ VENDOR : owns
     TENANT ||--o{ WORKFORCE_REQUEST : owns
     TENANT ||--o{ NOTIFICATION : owns
+    TENANT ||--o{ USER_NOTIFICATION_PREFERENCE : owns
     TENANT ||--o{ AUDIT_LOG : owns
     TENANT ||--o| SYSTEM_SETTINGS : configures
     TENANT ||--o| WORKFORCE_SETTINGS : configures
 
     DEPARTMENT ||--o{ USER : contains
     CUSTOM_ROLE ||--o{ USER : grants
+    USER ||--o| USER_NOTIFICATION_PREFERENCE : configures
 
     TENANT {
         string id PK
@@ -123,6 +126,12 @@ erDiagram
         string departmentId FK
         string customRoleId FK
         boolean isActive
+    }
+    USER_NOTIFICATION_PREFERENCE {
+        string id PK
+        string tenantId FK
+        string userId FK,UK
+        boolean emailEnabled
     }
     CUSTOM_ROLE {
         string id PK
@@ -162,6 +171,8 @@ erDiagram
     DOCUMENT ||--o{ DOCUMENT_COMMENT : comments
     DOCUMENT ||--o{ DOCUMENT_ATTACHMENT : attaches
     DOCUMENT ||--o{ USER_FAVORITE : favorites
+    RETENTION_POLICY ||--o{ DOCUMENT : retains
+    DOCUMENT ||--o{ DOCUMENT_DISPOSITION_REQUEST : reviews
 
     DOCUMENT {
         string id PK
@@ -175,6 +186,10 @@ erDiagram
         string templateId FK
         string workflowId FK
         string filePath
+        string retentionPolicyId FK
+        datetime retentionUntil
+        datetime legalHoldAt
+        datetime disposedAt
     }
     DOCUMENT_VERSION {
         string id PK
@@ -191,9 +206,51 @@ erDiagram
         datetime signedAt
         string docHash
     }
+    RETENTION_POLICY {
+        string id PK
+        string tenantId FK
+        string category
+        int retentionDays
+        boolean isDefault
+        boolean isActive
+    }
+    DOCUMENT_DISPOSITION_REQUEST {
+        string id PK
+        string tenantId FK
+        string documentId FK
+        string status
+        string requestedById
+        string reviewedById
+        datetime executedAt
+    }
 ```
 
-Fayl yolları database-də tenant prefiksi ilə saxlanılır. `/uploads` public static route deyil; sənəd və imza faylları yalnız `/api/files/...` üzərindən JWT, tenant və sənəd səlahiyyəti yoxlandıqdan sonra verilir. Login loqosu və fonu `/uploads/{tenantId}/branding/` altında saxlanılır və public API yalnız `SystemSettings`-də aktiv seçilmiş faylı qaytarır.
+Fayl yolları database-də tenant prefiksi ilə saxlanılır. `/uploads` public static route deyil; sənəd və imza faylları yalnız `/api/files/...` üzərindən JWT, canonical sənəd siyasəti və `/uploads/{activeTenantId}/` storage prefiksi yoxlandıqdan sonra verilir. Reusable istifadəçi imzasını yalnız həmin istifadəçi görə bilər; digər şəxslər yalnız oxumağa icazəli sənəddəki dəyişməz imza sübutunu görür. Login loqosu və fonu `/uploads/{tenantId}/branding/` altında saxlanılır və public API yalnız `SystemSettings`-də aktiv seçilmiş faylı qaytarır.
+
+Records disposition hard-delete etmir: təsdiqlənmiş four-eyes qərardan sonra məzmun və file reference-ləri purge olunur, `Document.status=DISPOSED` metadata tombstone-u, `DocumentDispositionRequest` snapshot-u, history və audit evidence saxlanılır. Partial unique index hər document üçün yalnız bir `PENDING` request-ə icazə verir. `RetentionPolicy` və `DocumentDispositionRequest` tenant cədvəlləridir və `FORCE RLS` ilə qorunur.
+
+`DocumentSearchIndex` hər `Document` üçün bir `PRIMARY` və hər `DocumentAttachment` üçün ayrıca `ATTACHMENT` tenant-scoped extraction sətri saxlayır. `(documentId, sourceKey)` unique invariant-i eyni faylın ikinci indeksini yaratmağa qoymur; attachment silinəndə onun indeksi cascade olunur. Primary file dəyişəndə köhnə mətn dərhal silinir və `sourceKey + sourcePath + sourceFileName + sourceVersion` şərti gecikmiş extraction job-ının yeni faylı overwrite etməsinə imkan vermir. `extractedText` API DTO-larına daxil edilmir; search əvvəlcə canonical `documentReadScope` ilə kəsişir. TXT/CSV/PDF/DOCX/XLSX bounded parser-lərlə indekslənir, şəkillər və text layer-i olmayan PDF `OCR_REQUIRED`, legacy DOC/XLS isə `UNSUPPORTED` olur. Cədvəldə `FORCE RLS`, tenant/status/source indeksləri və multilingual substring search üçün `pg_trgm` GIN index var. Records disposition zamanı bütün document indeksləri transaction daxilində silinir. Texniki health endpoint yalnız tenant daxilində status/source üzrə aggregate saylar və son indeks vaxtını qaytarır; sənəd/fayl metadata-sı və extracted mətn bu projection-a daxil edilmir.
+
+`AuditLog` tenant daxilində append-only sübut zənciridir. Hər insert advisory lock altında monoton `sequence`, əvvəlki sətrin `entryHash` dəyəri və bütün evidence field-lərindən hesablanan SHA-256 `entryHash` alır. `(tenantId, sequence)` unique-dir, RLS/tenant isolation qalır, runtime DB rolunda update/delete yoxdur və trigger də table owner olmayan mutation-u bloklayır. Migration/table owner yalnız offline break-glass və migration üçündür. HTTP-origin event-lərdə serverin yaratdığı `requestId` response `X-Request-Id`, structured server log və eyni async transaction-dakı audit sətrlərini birləşdirir. V3 hash payload-ı request ID ilə yanaşı `outcome`, `reason`, `beforeState` və `afterState` sahələrini də qoruyur. Identity, custom-role, Department, Template, Workflow, Document və Security Settings yüksək-risk mutation-ları deterministic, secret-safe JSON snapshot yazır. Böyük/sensitive template/document content, description, file name/path və workflow definition açıq mətn kimi çoğaldılmır; onların digest-i, ölçüsü və təhlükəsiz struktur/lifecycle xülasəsi state transition ilə birlikdə saxlanılır. Document approval/signature evidence-i exact version və approval cycle-a bağlanır. Adi list/CSV yalnız diff mövcudluğunu, `audit.export` JSON evidence isə səlahiyyətli yoxlama üçün snapshot-ları qaytarır. Background job event-lərində request ID `NULL` qala bilər. Integrity endpoint bütün tenant chain-i DB-də yenidən hesablayır, amma event payload-larını cavaba çıxarmır. Evidence export canonical field order/separator/timestamp contract-ını, verified chain head-i və həmin head-də dondurulmuş `sequence` cutoff-u təqdim edir; tam paket xarici alətlə event hash-ləri, previous-hash continuity-si və anchor-a qədər müstəqil yoxlana bilir. Filter və 10 000 event truncation vəziyyəti manifestdə ayrıca qeyd olunur.
+
+```mermaid
+erDiagram
+    TENANT ||--o{ DOCUMENT_SEARCH_INDEX : isolates
+    DOCUMENT ||--o{ DOCUMENT_SEARCH_INDEX : indexed_by
+    DOCUMENT_ATTACHMENT ||--o| DOCUMENT_SEARCH_INDEX : indexed_by
+    DOCUMENT_SEARCH_INDEX {
+        string id PK
+        string tenantId FK
+        string documentId FK
+        string attachmentId FK
+        string sourceType
+        string sourceKey
+        string sourceVersion
+        string status
+        text extractedText
+        datetime indexedAt
+    }
+```
 
 ## 7. Casual Workforce sxemi
 
@@ -279,6 +336,25 @@ Email birbaşa request thread-i içində göndərilmir. SMTP feature-i aktivdirs
 20260824030000_email_outbox_delivery  SMTP outbox retry sahələri
 20260824040000_tenant_relation_integrity Cross-tenant əlaqə trigger-ləri
 20260824050000_tenant_login_branding  Tenant login loqosu və fon şəkli sahələri
+20260826010000_workforce_invoice_payment_audit Invoice payment audit sahələri
+20260826020000_remove_runtime_rls_wildcard Runtime wildcard-ı ləğv edən sərt RLS policy-ləri
+20260826030000_revocable_auth_tokens      Account lifecycle JWT revocation
+20260826040000_disable_unenforced_security_flags Tətbiq olunmayan security flag-lərinin fail-closed söndürülməsi
+20260826050000_signature_version_evidence İmzanın document version evidence-i
+20260826060000_signature_approval_cycle   İmzanın approval cycle evidence-i
+20260826070000_user_notification_preferences Şəxsi notification delivery seçimləri
+20260826080000_notification_preference_tenant_relation Preference tenant relation/FK
+20260826090000_typed_notification_targets Typed action target və dedupe sahələri
+20260826100000_notification_completion_actor Action completion actor evidence-i
+20260826110000_user_job_title             Access rolundan ayrı məcburi job title
+20260826120000_backfill_user_job_titles   Mövcud user title backfill-i
+20260826130000_department_lifecycle       Recoverable department deactivate/reactivate
+20260826140000_records_management         Retention, legal hold və four-eyes disposition
+20260826150000_document_search_index      Primary document extracted-text index-i
+20260826160000_attachment_search_index    Attachment source index-i
+20260826170000_tamper_evident_audit_log   Append-only tenant SHA-256 audit chain-i
+20260826180000_audit_request_correlation  Hash-protected HTTP request correlation evidence-i
+20260826190000_structured_audit_evidence  Outcome/reason/before/after və v3 audit hash-i
 ```
 
 Production deploy zamanı:
@@ -302,7 +378,7 @@ flowchart LR
 | Admin/migration | `DATABASE_ADMIN_URL` | Schema migration, baseline, rol provisioning |
 | Runtime app | `DATABASE_URL` | Yalnız tətbiqin gündəlik CRUD əməliyyatları |
 
-Runtime istifadəçisi `NOSUPERUSER` olmalıdır. Onu yaratmaq üçün admin URL ilə:
+Runtime istifadəçisi `NOSUPERUSER NOBYPASSRLS` olmalıdır. Runtime connection yalnız konkret tenant GUC-u ilə tenant cədvəllərini oxuyur; `__system__` context tenant cədvəllərində heç nə görmür və `*` policy bypass-ı yoxdur. Onu yaratmaq üçün admin URL ilə:
 
 ```bash
 npm run db:provision-app-role
@@ -324,5 +400,7 @@ npm run db:migrate:deploy
 npm run test:tenant-isolation
 npm audit --omit=dev --audit-level=high
 ```
+
+Isolation testi Department ilə yanaşı User, Document və Casual Workforce obyektlərini, `__system__` sentinel görünməzliyini, tenant override/update/relation bloklarını və tenant-local unique constraint-ləri yoxlayır. Test müvəqqəti məlumat yaratdığı üçün local/CI disposable PostgreSQL üçündür; remote staging-də yalnız `TENANT_ISOLATION_ALLOW_REMOTE=true` ilə bilərəkdən işə salınır və canlı production bazasında işlədilmir.
 
 CI bu yoxlamaları PostgreSQL 17 service üzərində hər push və pull request üçün icra edir.

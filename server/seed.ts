@@ -8,7 +8,7 @@ import {
   AuditAction,
   ConversationType,
 } from '@prisma/client';
-import { DEFAULT_SIGNATURE_PLACEMENTS, serializeSignaturePlacements } from './lib/signatures';
+import { DEFAULT_SIGNATURE_PLACEMENTS, serializeSignaturePlacements } from './modules/documents';
 import { prisma, systemPrisma } from './db';
 import { runWithTenant } from './lib/tenantContext';
 import { HGI_TENANT_ID, HGI_TENANT_SLUG } from './migrateTenants';
@@ -66,6 +66,7 @@ async function main() {
       email: 'rasul.mursagulov@hgibaku.com',
       firstName: 'Rəsul',
       lastName: 'Mürsəqulov',
+      jobTitle: 'General Manager',
       role: Role.GENERAL_MANAGER,
       departmentId: deptByCode.GM.id,
     },
@@ -73,6 +74,7 @@ async function main() {
       email: 'nigar.rustamova@hoterra.az',
       firstName: 'Nigar',
       lastName: 'Rustamova',
+      jobTitle: 'Front Office Manager',
       role: Role.HOD,
       departmentId: deptByCode.FO.id,
     },
@@ -80,6 +82,7 @@ async function main() {
       email: 'elnur.mahmudov@hoterra.az',
       firstName: 'Elnur',
       lastName: 'Mahmudov',
+      jobTitle: 'Finance Director',
       role: Role.FINANCE_DIRECTOR,
       departmentId: deptByCode.FI.id,
     },
@@ -87,6 +90,7 @@ async function main() {
       email: 'employee@hoterra.az',
       firstName: 'Leyla',
       lastName: 'Huseynova',
+      jobTitle: 'Front Office Agent',
       role: Role.EMPLOYEE,
       departmentId: deptByCode.FO.id,
     },
@@ -94,6 +98,7 @@ async function main() {
       email: 'admin@hoterra.az',
       firstName: 'System',
       lastName: 'Administrator',
+      jobTitle: 'System Administrator',
       role: Role.SYSTEM_ADMINISTRATOR,
       departmentId: deptByCode.GM.id,
     },
@@ -102,7 +107,7 @@ async function main() {
   for (const u of users) {
     await prisma.user.upsert({
       where: { tenantId_email: { tenantId: HGI_TENANT_ID, email: u.email } },
-      update: {},
+      update: { jobTitle: u.jobTitle },
       create: {
         ...u,
         passwordHash: u.email === 'rasul.mursagulov@hgibaku.com' ? gmPasswordHash : passwordHash,
@@ -314,6 +319,8 @@ async function main() {
             ipAddress: '192.168.1.100',
             device: 'Windows Desktop',
             docHash: 'sha256:abc123',
+            documentVersion: publishedDoc.version,
+            approvalCycle: publishedDoc.approvalCycle,
           },
         });
       }

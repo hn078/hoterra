@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import type { WorkflowItem } from '@/types';
 import {
@@ -21,9 +22,14 @@ import {
 } from '@/lib/workflows';
 import { ROLE_LABELS } from '@/types';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 export function WorkflowsPage() {
   const navigate = useNavigate();
+  const dialog = useAppDialog();
+  const currentUser = useAuthStore((state) => state.user);
+  const canManage = hasCapability(currentUser, 'workflows.manage');
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [view, setView] = useState<'cards' | 'table'>('cards');
   const [creating, setCreating] = useState(false);
@@ -40,15 +46,16 @@ export function WorkflowsPage() {
   }, []);
 
   const handleNewWorkflow = async () => {
+    if (!canManage) return;
     setCreating(true);
     try {
       const wf = await api.createWorkflow({
-        name: 'New Workflow',
+        name: `New Workflow ${workflows.length + 1}`,
         description: 'Configure approval route',
       });
       navigate(`/workflows/${wf.id}/designer`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create workflow');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to create workflow', { title: 'Workflow not created' });
     } finally {
       setCreating(false);
     }
@@ -57,16 +64,17 @@ export function WorkflowsPage() {
   const handleSetDefault = async (e: React.MouseEvent, wf: WorkflowItem) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!canManage || wf.isDefault) return;
     if (wf.status !== 'ACTIVE') {
-      alert('Activate the workflow in the designer before setting it as default');
+      await dialog.alert('Activate the workflow in the designer before setting it as default', { title: 'Workflow is not active' });
       return;
     }
     setUpdatingDefault(wf.id);
     try {
-      await api.setWorkflowDefault(wf.id, !wf.isDefault);
+      await api.setWorkflowDefault(wf.id, true);
       loadWorkflows();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update default');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to update default', { title: 'Default not updated' });
     } finally {
       setUpdatingDefault(null);
     }
@@ -77,7 +85,7 @@ export function WorkflowsPage() {
       <Header
         title="Workflows"
         subtitle="Configure document approval routes and processes"
-        action={
+        action={canManage ? (
           <button
             onClick={handleNewWorkflow}
             disabled={creating}
@@ -86,7 +94,7 @@ export function WorkflowsPage() {
             <Plus className="h-4 w-4" />
             {creating ? 'Creating...' : 'New Workflow'}
           </button>
-        }
+        ) : undefined}
       />
 
       <div className="border-b border-gray-200 bg-white px-6 pb-4 pt-2">
@@ -126,6 +134,7 @@ export function WorkflowsPage() {
                 workflow={wf}
                 onSetDefault={handleSetDefault}
                 updatingDefault={updatingDefault === wf.id}
+                canManage={canManage}
               />
             ))}
           </div>
@@ -159,11 +168,11 @@ export function WorkflowsPage() {
                       <WorkflowStatusBadge status={wf.status} />
                     </td>
                     <td className="px-4 py-3">
-                      {wf.status === 'ACTIVE' ? (
+                      {wf.status === 'ACTIVE' && canManage ? (
                         <button
                           type="button"
                           onClick={(e) => handleSetDefault(e, wf)}
-                          disabled={updatingDefault === wf.id}
+                          disabled={updatingDefault === wf.id || wf.isDefault}
                           className={cn(
                             'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs',
                             wf.isDefault
@@ -179,13 +188,15 @@ export function WorkflowsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        to={`/workflows/${wf.id}/designer`}
-                        className="inline-flex items-center gap-1 text-sm text-hoterra-steel hover:underline"
-                      >
-                        Open Designer
-                        <ChevronRight className="h-4 w-4" />
-                      </Link>
+                      {canManage ? (
+                        <Link
+                          to={`/workflows/${wf.id}/designer`}
+                          className="inline-flex items-center gap-1 text-sm text-hoterra-steel hover:underline"
+                        >
+                          Open Designer
+                          <ChevronRight className="h-4 w-4" />
+                        </Link>
+                      ) : <span className="text-xs text-gray-400">View only</span>}
                     </td>
                   </tr>
                 ))}
@@ -208,18 +219,16 @@ function WorkflowCard({
   workflow,
   onSetDefault,
   updatingDefault,
+  canManage,
 }: {
   workflow: WorkflowItem;
   onSetDefault: (e: React.MouseEvent, wf: WorkflowItem) => void;
   updatingDefault: boolean;
+  canManage: boolean;
 }) {
   const stepCount = countWorkflowSteps(workflow.steps);
-
-  return (
-    <Link
-      to={`/workflows/${workflow.id}/designer`}
-      className="card group p-5 transition-shadow hover:border-hoterra-steel/40 hover:shadow-md"
-    >
+  const content = (
+    <>
       <div className="mb-3 flex items-start justify-between">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-hoterra-steel/10">
           <GitBranch className="h-5 w-5 text-hoterra-steel" />
@@ -260,11 +269,11 @@ function WorkflowCard({
       <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
         <span>{stepCount} step{stepCount !== 1 ? 's' : ''}</span>
         <div className="flex items-center gap-2">
-          {workflow.status === 'ACTIVE' && (
+          {workflow.status === 'ACTIVE' && canManage && (
             <button
               type="button"
               onClick={(e) => onSetDefault(e, workflow)}
-              disabled={updatingDefault}
+              disabled={updatingDefault || workflow.isDefault}
               className={cn(
                 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 opacity-0 transition-opacity group-hover:opacity-100',
                 workflow.isDefault ? 'text-hoterra-gold' : 'text-gray-500 hover:text-hoterra-steel'
@@ -274,14 +283,25 @@ function WorkflowCard({
               {workflow.isDefault ? 'Default' : 'Set default'}
             </button>
           )}
-          <span className="flex items-center gap-1 text-hoterra-steel opacity-0 transition-opacity group-hover:opacity-100">
-            Open Designer
-            <ChevronRight className="h-3.5 w-3.5" />
-          </span>
+          {canManage && (
+            <span className="flex items-center gap-1 text-hoterra-steel opacity-0 transition-opacity group-hover:opacity-100">
+              Open Designer
+              <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          )}
         </div>
       </div>
-    </Link>
+    </>
   );
+
+  return canManage ? (
+    <Link
+      to={`/workflows/${workflow.id}/designer`}
+      className="card group p-5 transition-shadow hover:border-hoterra-steel/40 hover:shadow-md"
+    >
+      {content}
+    </Link>
+  ) : <div className="card p-5">{content}</div>;
 }
 
 function WorkflowStatusBadge({ status }: { status: WorkflowItem['status'] }) {

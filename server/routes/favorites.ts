@@ -1,65 +1,53 @@
 import { Router, Request, Response } from 'express';
-import { prisma } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { routeParam } from '../utils';
+import { prisma } from '../db';
+import { asyncHandler } from '../lib/asyncHandler';
+import { requireCapability } from '../modules/access-control';
+import {
+  addDocumentFavorite,
+  DocumentFavoriteError,
+  isDocumentFavorite,
+  listFavoriteDocumentIds,
+  listFavoriteDocuments,
+  removeDocumentFavorite,
+} from '../modules/documents';
 
 const router = Router();
 
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
-  const favorites = await prisma.userFavorite.findMany({
-    where: { userId: req.user!.id },
-    include: {
-      document: {
-        include: { department: true, author: { select: { firstName: true, lastName: true } } },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json(favorites.map((f) => f.documentId));
-});
+function favoriteError(error: unknown, res: Response) {
+  if (!(error instanceof DocumentFavoriteError)) throw error;
+  return error.code === 'FORBIDDEN'
+    ? res.status(403).json({ error: 'Forbidden' })
+    : res.status(404).json({ error: 'Document not found' });
+}
 
-router.get('/documents', authMiddleware, async (req: Request, res: Response) => {
-  const favorites = await prisma.userFavorite.findMany({
-    where: { userId: req.user!.id },
-    include: {
-      document: {
-        include: { department: true, author: { select: { firstName: true, lastName: true } } },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json(
-    favorites.map((f) => ({
-      ...f.document,
-      tags: JSON.parse(f.document.tags),
-    }))
-  );
-});
+router.get('/', authMiddleware, requireCapability('documents.read'), asyncHandler(async (req: Request, res: Response) => {
+  try { res.json(await listFavoriteDocumentIds(prisma, req.user!)); }
+  catch (error) { return favoriteError(error, res); }
+}));
 
-router.post('/:documentId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/documents', authMiddleware, requireCapability('documents.read'), asyncHandler(async (req: Request, res: Response) => {
+  try { res.json(await listFavoriteDocuments(prisma, req.user!)); }
+  catch (error) { return favoriteError(error, res); }
+}));
+
+router.post('/:documentId', authMiddleware, requireCapability('documents.read'), asyncHandler(async (req: Request, res: Response) => {
   const documentId = routeParam(req.params.documentId);
-  await prisma.userFavorite.upsert({
-    where: { userId_documentId: { userId: req.user!.id, documentId } },
-    update: {},
-    create: { userId: req.user!.id, documentId },
-  });
-  res.status(201).json({ ok: true });
-});
+  try { res.status(201).json(await addDocumentFavorite(prisma, req.user!, documentId)); }
+  catch (error) { return favoriteError(error, res); }
+}));
 
-router.delete('/:documentId', authMiddleware, async (req: Request, res: Response) => {
+router.delete('/:documentId', authMiddleware, requireCapability('documents.read'), asyncHandler(async (req: Request, res: Response) => {
   const documentId = routeParam(req.params.documentId);
-  await prisma.userFavorite.deleteMany({
-    where: { userId: req.user!.id, documentId },
-  });
-  res.json({ ok: true });
-});
+  try { res.json(await removeDocumentFavorite(prisma, req.user!, documentId)); }
+  catch (error) { return favoriteError(error, res); }
+}));
 
-router.get('/check/:documentId', authMiddleware, async (req: Request, res: Response) => {
+router.get('/check/:documentId', authMiddleware, requireCapability('documents.read'), asyncHandler(async (req: Request, res: Response) => {
   const documentId = routeParam(req.params.documentId);
-  const fav = await prisma.userFavorite.findUnique({
-    where: { userId_documentId: { userId: req.user!.id, documentId } },
-  });
-  res.json({ isFavorite: !!fav });
-});
+  try { res.json(await isDocumentFavorite(prisma, req.user!, documentId)); }
+  catch (error) { return favoriteError(error, res); }
+}));
 
 export default router;

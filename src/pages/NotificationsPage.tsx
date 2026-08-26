@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   BellOff,
@@ -12,6 +12,7 @@ import {
   Smartphone,
   MessageSquare,
   Settings,
+  BriefcaseBusiness,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { DashStatCard } from '@/components/ui/DashStatCard';
@@ -21,6 +22,7 @@ import { api } from '@/lib/api';
 import type { Notification } from '@/types';
 import { timeAgo } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 
 const TYPE_TABS = [
   { id: 'ALL', label: 'All' },
@@ -29,6 +31,7 @@ const TYPE_TABS = [
   { id: 'system', label: 'System' },
   { id: 'security', label: 'Security' },
   { id: 'template', label: 'Templates' },
+  { id: 'workforce', label: 'Workforce' },
 ];
 
 const TYPE_ICONS: Record<string, typeof Bell> = {
@@ -37,6 +40,7 @@ const TYPE_ICONS: Record<string, typeof Bell> = {
   system: Settings,
   security: Shield,
   template: FileText,
+  workforce: BriefcaseBusiness,
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -45,9 +49,12 @@ const TYPE_COLORS: Record<string, string> = {
   system: 'bg-gray-100 text-gray-600',
   security: 'bg-red-100 text-red-600',
   template: 'bg-green-100 text-green-600',
+  workforce: 'bg-cyan-100 text-cyan-700',
 };
 
 export function NotificationsPage() {
+  const navigate = useNavigate();
+  const dialog = useAppDialog();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('ALL');
@@ -55,8 +62,8 @@ export function NotificationsPage() {
   const [markingRead, setMarkingRead] = useState(false);
   const [channels, setChannels] = useState({
     email: true,
-    push: true,
     inApp: true,
+    push: false,
     sms: false,
   });
 
@@ -71,14 +78,14 @@ export function NotificationsPage() {
 
   useEffect(() => {
     load();
-    api.getSettings().then((s) => {
-      setChannels({
-        email: s.notifyEmail ?? true,
-        push: s.notifyPush ?? true,
-        inApp: s.notifyInApp ?? true,
-        sms: false,
-      });
-    }).catch(console.error);
+    api.getNotificationPreferences().then((preference) => {
+        setChannels({
+          email: preference.emailEnabled,
+          push: preference.browserPushAvailable,
+          inApp: preference.inAppRequired,
+          sms: false,
+        });
+      }).catch(console.error);
   }, []);
 
   const filtered = useMemo(() => {
@@ -121,31 +128,42 @@ export function NotificationsPage() {
   };
 
   const handleNotificationClick = async (n: Notification) => {
-    if (!n.isRead) {
-      try {
-        await api.markNotificationRead(n.id);
-        setNotifications((prev) =>
-          prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
-        );
-      } catch (err) {
-        console.error(err);
+    try {
+      const result = await api.openNotification(n.id);
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item))
+      );
+      if (result.state === 'AVAILABLE' && result.destination) {
+        navigate(result.destination);
+      } else if (result.state === 'COMPLETED' && result.destination) {
+        const completedBy = result.completedByName ? ` by ${result.completedByName}` : '';
+        const completedAt = result.completedAt ? ` on ${new Date(result.completedAt).toLocaleString()}` : '';
+        await dialog.alert(`This action was completed${completedBy}${completedAt}. The record will open in read-only context.`, {
+          title: 'Task completed',
+        });
+        navigate(result.destination);
+      } else {
+        await dialog.alert('This item is no longer available or you no longer have access to it.', {
+          title: 'Item unavailable',
+        });
       }
+    } catch (err) {
+      await dialog.alert(err instanceof Error ? err.message : 'Notification could not be opened.', {
+        title: 'Notification unavailable',
+      });
     }
   };
 
-  const toggleChannel = async (key: keyof typeof channels) => {
-    const next = { ...channels, [key]: !channels[key] };
+  const toggleEmailChannel = async () => {
+    const next = { ...channels, email: !channels.email };
     setChannels(next);
-    if (key === 'sms') return;
     try {
-      await api.updateSettings({
-        notifyEmail: next.email,
-        notifyPush: next.push,
-        notifyInApp: next.inApp,
-      });
+      await api.updateNotificationPreferences(next.email);
     } catch (err) {
-      console.error(err);
       setChannels(channels);
+      await dialog.alert(err instanceof Error ? err.message : 'Preference could not be saved.', {
+        title: 'Notification preference not saved',
+      });
     }
   };
 
@@ -202,8 +220,17 @@ export function NotificationsPage() {
                     <div
                       key={n.id}
                       onClick={() => handleNotificationClick(n)}
+                      onKeyDown={(event) => {
+                        if (n.link && (event.key === 'Enter' || event.key === ' ')) {
+                          event.preventDefault();
+                          void handleNotificationClick(n);
+                        }
+                      }}
+                      role={n.link ? 'link' : undefined}
+                      tabIndex={n.link ? 0 : undefined}
                       className={cn(
-                        'flex cursor-pointer gap-4 rounded-xl border bg-white p-4 transition-shadow hover:shadow-sm',
+                        'flex gap-4 rounded-xl border bg-white p-4 transition-shadow hover:shadow-sm',
+                        n.link ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-hoterra-steel/40' : 'cursor-default',
                         !n.isRead ? 'border-hoterra-gold/30 border-l-4 border-l-hoterra-gold' : 'border-gray-200'
                       )}
                     >
@@ -229,13 +256,9 @@ export function NotificationsPage() {
                         </div>
                         <p className="mt-1 text-sm text-gray-600">{n.message}</p>
                         {n.link && (
-                          <Link
-                            to={n.link}
-                            onClick={(e) => e.stopPropagation()}
-                            className="mt-2 inline-block text-xs font-medium text-hoterra-steel hover:underline"
-                          >
+                          <span className="mt-2 inline-block text-xs font-medium text-hoterra-steel">
                             View details →
-                          </Link>
+                          </span>
                         )}
                       </div>
                       {!n.isRead && (
@@ -268,23 +291,27 @@ export function NotificationsPage() {
             <div className="space-y-2">
               {(
                 [
-                  { key: 'inApp' as const, label: 'In-App', icon: Bell },
-                  { key: 'email' as const, label: 'Email', icon: Mail },
-                  { key: 'push' as const, label: 'Push', icon: Smartphone },
-                  { key: 'sms' as const, label: 'SMS', icon: MessageSquare },
+                  { key: 'inApp' as const, label: 'In-App', note: 'Required for assigned work', icon: Bell, disabled: true },
+                  { key: 'email' as const, label: 'Email', note: 'Personal delivery preference', icon: Mail, disabled: false },
+                  { key: 'push' as const, label: 'Browser push', note: 'Not configured', icon: Smartphone, disabled: true },
+                  { key: 'sms' as const, label: 'SMS', note: 'Not configured', icon: MessageSquare, disabled: true },
                 ] as const
-              ).map(({ key, label, icon: Icon }) => (
+              ).map(({ key, label, note, icon: Icon, disabled }) => (
                 <div
                   key={key}
                   className="flex items-center justify-between rounded-lg border border-gray-100 p-3 hover:bg-gray-50"
                 >
-                  <span className="flex items-center gap-2 text-sm text-gray-700">
+                  <span className="flex min-w-0 items-center gap-2 text-sm text-gray-700">
                     <Icon className="h-4 w-4 text-gray-400" />
-                    {label}
+                    <span>
+                      <span className="block">{label}</span>
+                      <span className="block text-[11px] text-gray-400">{note}</span>
+                    </span>
                   </span>
                   <Switch
                     checked={channels[key]}
-                    onChange={() => toggleChannel(key)}
+                    onChange={key === 'email' ? toggleEmailChannel : () => undefined}
+                    disabled={disabled}
                     aria-label={label}
                   />
                 </div>

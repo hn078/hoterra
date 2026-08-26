@@ -17,10 +17,13 @@ import { DashStatCard } from '@/components/ui/DashStatCard';
 import { CategoryBadge } from '@/components/ui/Badges';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { Pagination } from '@/components/ui/Pagination';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import type { DocumentCategory, Template } from '@/types';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control';
 
 const CATEGORY_TABS: { id: DocumentCategory | 'ALL'; label: string }[] = [
   { id: 'ALL', label: 'All Templates' },
@@ -30,27 +33,37 @@ const CATEGORY_TABS: { id: DocumentCategory | 'ALL'; label: string }[] = [
   { id: 'CHECKLISTS', label: 'Checklists' },
   { id: 'CONTRACTS', label: 'Contracts' },
   { id: 'TEMPLATES', label: 'Templates' },
+  { id: 'REPORTS', label: 'Reports' },
+  { id: 'TRAINING_MATERIALS', label: 'Training Materials' },
+  { id: 'ARCHIVE', label: 'Archive' },
 ];
 
 const STATUS_STYLE: Record<string, string> = {
-  Active: 'bg-green-100 text-green-700 border-green-300',
   ACTIVE: 'bg-green-100 text-green-700 border-green-300',
-  'Under Review': 'bg-orange-100 text-orange-700 border-orange-300',
-  Draft: 'bg-gray-100 text-gray-600 border-gray-300',
+  UNDER_REVIEW: 'bg-orange-100 text-orange-700 border-orange-300',
   DRAFT: 'bg-gray-100 text-gray-600 border-gray-300',
-  Archived: 'bg-slate-100 text-slate-600 border-slate-300',
   ARCHIVED: 'bg-slate-100 text-slate-600 border-slate-300',
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Active',
+  UNDER_REVIEW: 'Under Review',
+  DRAFT: 'Draft',
+  ARCHIVED: 'Archived',
+};
+
 function templateStatus(t: Template): string {
-  if (t.status) return t.status;
-  if (t.isActive === false) return 'Draft';
-  return 'Active';
+  if (t.status) return t.status.trim().toUpperCase().replaceAll(' ', '_');
+  return t.isActive === false ? 'DRAFT' : 'ACTIVE';
 }
 
 const LIMIT = 20;
 
 export function TemplatesPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
+  const canManage = hasCapability(currentUser, 'templates.manage');
+  const canManageAll = hasCapability(currentUser, 'documents.read.all');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<DocumentCategory | 'ALL'>('ALL');
@@ -80,8 +93,7 @@ export function TemplatesPage() {
       const status = templateStatus(t);
       const matchesStatus =
         !filterStatus ||
-        status.toLowerCase() === filterStatus.toLowerCase() ||
-        status.toUpperCase() === filterStatus.toUpperCase();
+        status === filterStatus.trim().toUpperCase().replaceAll(' ', '_');
       return matchesTab && matchesSearch && matchesStatus;
     });
   }, [templates, activeTab, search, filterStatus]);
@@ -89,16 +101,16 @@ export function TemplatesPage() {
   const stats = useMemo(() => {
     const active = templates.filter((t) => {
       const s = templateStatus(t);
-      return s === 'Active' || s === 'ACTIVE';
+      return s === 'ACTIVE';
     }).length;
-    const underReview = templates.filter((t) => templateStatus(t) === 'Under Review').length;
+    const underReview = templates.filter((t) => templateStatus(t) === 'UNDER_REVIEW').length;
     const draft = templates.filter((t) => {
       const s = templateStatus(t);
-      return s === 'Draft' || s === 'DRAFT';
+      return s === 'DRAFT';
     }).length;
     const archived = templates.filter((t) => {
       const s = templateStatus(t);
-      return s === 'Archived' || s === 'ARCHIVED';
+      return s === 'ARCHIVED';
     }).length;
     return { total: templates.length, active, underReview, draft, archived };
   }, [templates]);
@@ -106,15 +118,46 @@ export function TemplatesPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIMIT));
   const paginated = filtered.slice((page - 1) * LIMIT, page * LIMIT);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this template?')) return;
+  const handleArchive = async (id: string) => {
+    const template = templates.find((item) => item.id === id);
+    if (!await dialog.confirm(`Archive “${template?.name || 'this template'}”? Existing documents will keep their template reference.`, {
+      title: 'Archive template',
+      confirmLabel: 'Archive',
+      tone: 'danger',
+    })) return;
     setOpenMenuId(null);
     try {
       await api.deleteTemplate(id);
-      setTemplates((prev) => prev.filter((t) => t.id !== id));
+      setTemplates((prev) => prev.map((t) => t.id === id ? { ...t, status: 'ARCHIVED', isActive: false } : t));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Delete failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Delete failed', { title: 'Archive failed' });
     }
+  };
+
+  const handleExport = () => {
+    const safeCell = (value: unknown) => {
+      let text = String(value ?? '');
+      if (/^[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replaceAll('"', '""')}"`;
+    };
+    const rows = [
+      ['Name', 'Category', 'Department', 'Version', 'Status', 'Updated'],
+      ...filtered.map((template) => [
+        template.name,
+        template.category,
+        template.department?.name ?? 'Global',
+        template.version ?? '1.0',
+        templateStatus(template),
+        template.updatedAt ?? '',
+      ]),
+    ];
+    const blob = new Blob([`\uFEFF${rows.map((row) => row.map(safeCell).join(',')).join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'templates.csv';
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const tabs = CATEGORY_TABS.map((tab) => ({
@@ -131,12 +174,12 @@ export function TemplatesPage() {
       <Header
         title="Templates"
         subtitle="Create and manage document templates for your organization"
-        action={
+        action={canManage ? (
           <Link to="/templates/new/edit" className="btn-primary">
             <Plus className="h-4 w-4" />
             New Template
           </Link>
-        }
+        ) : undefined}
       />
 
       <div className="page-stats page-stats--tabs">
@@ -180,10 +223,10 @@ export function TemplatesPage() {
             <option value="Under Review">Under Review</option>
             <option value="Archived">Archived</option>
           </select>
-          <Link to="/templates" className="btn-secondary py-2.5">
+          <button type="button" onClick={handleExport} className="btn-secondary py-2.5">
             <Download className="h-4 w-4" />
             Export
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -191,7 +234,6 @@ export function TemplatesPage() {
         <table className="w-full min-w-[1100px] text-sm">
           <thead className="sticky top-0 bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <tr>
-              <th className="px-6 py-3"><input type="checkbox" className="rounded" /></th>
               <th className="px-4 py-3">Template Name</th>
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Department</th>
@@ -204,22 +246,22 @@ export function TemplatesPage() {
           <tbody className="divide-y divide-gray-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">Loading templates...</td>
+                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading templates...</td>
               </tr>
             ) : paginated.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">No templates found</td>
+                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">No templates found</td>
               </tr>
             ) : (
               paginated.map((t) => {
                 const status = templateStatus(t);
+                const canManageItem = canManage && (canManageAll || (!!currentUser?.department?.id && t.departmentId === currentUser.department.id));
                 return (
                   <tr key={t.id} className="hover:bg-gray-50/80">
-                    <td className="px-6 py-3"><input type="checkbox" className="rounded" /></td>
                     <td className="px-4 py-3">
-                      <Link to={`/templates/${t.id}/edit`} className="font-medium text-hoterra-navy hover:text-hoterra-steel">
-                        {t.name}
-                      </Link>
+                      {canManageItem ? (
+                        <Link to={`/templates/${t.id}/edit`} className="font-medium text-hoterra-navy hover:text-hoterra-steel">{t.name}</Link>
+                      ) : <span className="font-medium text-hoterra-navy">{t.name}</span>}
                       {t.description && (
                         <p className="mt-0.5 line-clamp-1 text-xs text-gray-400">{t.description}</p>
                       )}
@@ -235,12 +277,12 @@ export function TemplatesPage() {
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">{t.version ?? '1.0'}</td>
                     <td className="px-4 py-3">
                       <span className={cn('inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium', STATUS_STYLE[status] || STATUS_STYLE.Draft)}>
-                        {status}
+                        {STATUS_LABEL[status] ?? status}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{formatDate(t.updatedAt)}</td>
                     <td className="px-4 py-3">
-                      <div className="relative flex items-center gap-1">
+                      {canManageItem ? <div className="relative flex items-center gap-1">
                         <Link to={`/templates/${t.id}/edit`} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-hoterra-steel" title="Edit template">
                           <Pencil className="h-4 w-4" />
                         </Link>
@@ -250,10 +292,10 @@ export function TemplatesPage() {
                         {openMenuId === t.id && (
                           <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                             <Link to={`/templates/${t.id}/edit`} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setOpenMenuId(null)}>Export / Edit</Link>
-                            <button onClick={() => handleDelete(t.id)} className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-50">Delete</button>
+                            {status !== 'ARCHIVED' && <button onClick={() => handleArchive(t.id)} className="block w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-50">Archive</button>}
                           </div>
                         )}
-                      </div>
+                      </div> : <span className="text-xs text-gray-400">View only</span>}
                     </td>
                   </tr>
                 );

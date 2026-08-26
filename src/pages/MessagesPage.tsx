@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Building2,
   ChevronLeft,
@@ -17,15 +17,23 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { CountBadge } from '@/components/ui/CountBadge';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
-import type { ChatMessage, ChatMessageDocument, ChatMessageFileAttachment, Conversation, Document, User } from '@/types';
+import type {
+  ChatMessage,
+  ChatMessageDocument,
+  ChatMessageFileAttachment,
+  Conversation,
+  Document,
+  MessageContact,
+} from '@/types';
 import { STATUS_COLORS, STATUS_LABELS } from '@/types';
 import { cn, fileToBase64, formatFileSize, getInitials, timeAgo } from '@/lib/utils';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
-const POLL_MS = 5000;
+const POLL_MS = 10_000;
 
 function ConversationIcon({ type }: { type: Conversation['type'] }) {
   if (type === 'HOTEL') return <Hotel className="h-4 w-4" />;
@@ -35,6 +43,9 @@ function ConversationIcon({ type }: { type: Conversation['type'] }) {
 
 export function MessagesPage() {
   const { user } = useAuthStore();
+  const dialog = useAppDialog();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedConversationId = searchParams.get('conversation');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
@@ -51,12 +62,14 @@ export function MessagesPage() {
   const [docSearch, setDocSearch] = useState('');
   const [pickerDocs, setPickerDocs] = useState<Document[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
-  const [staff, setStaff] = useState<User[]>([]);
+  const [staff, setStaff] = useState<MessageContact[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+  const latestMessageIdsRef = useRef(new Map<string, string>());
+  const pollingRef = useRef(false);
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
 
@@ -65,29 +78,41 @@ export function MessagesPage() {
     try {
       const items = await api.getConversations();
       setConversations(items);
-      setSelectedId((current) => current ?? items[0]?.id ?? null);
+      setSelectedId((current) => {
+        if (requestedConversationId && items.some((item) => item.id === requestedConversationId)) {
+          return requestedConversationId;
+        }
+        if (current && items.some((item) => item.id === current)) return current;
+        return items[0]?.id ?? null;
+      });
     } catch (err) {
       console.error(err);
     } finally {
       if (!silent) setLoadingConversations(false);
     }
-  }, []);
+  }, [requestedConversationId]);
 
   const loadMessages = useCallback(async (conversationId: string, silent = false) => {
     if (!silent) setLoadingMessages(true);
     try {
       const res = await api.getConversationMessages(conversationId, { limit: 100 });
       setMessages(res.data);
-      await api.markConversationRead(conversationId);
-      setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c))
-      );
+      const latest = res.data.at(-1);
+      const previousLatestId = latestMessageIdsRef.current.get(conversationId);
+      if (latest) latestMessageIdsRef.current.set(conversationId, latest.id);
+      const receivedNewMessage = !!latest && latest.id !== previousLatestId && latest.senderId !== user?.id;
+      if (!silent || receivedNewMessage) {
+        await api.markConversationRead(conversationId);
+        setConversations((prev) =>
+          prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c))
+        );
+      }
     } catch (err) {
       console.error(err);
     } finally {
       if (!silent) setLoadingMessages(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     loadConversations();
@@ -102,11 +127,25 @@ export function MessagesPage() {
   }, [selectedId, loadMessages]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      loadConversations(true);
-      if (selectedId) loadMessages(selectedId, true);
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
+    const poll = async () => {
+      if (document.visibilityState !== 'visible' || pollingRef.current) return;
+      pollingRef.current = true;
+      try {
+        await loadConversations(true);
+        if (selectedId) await loadMessages(selectedId, true);
+      } finally {
+        pollingRef.current = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll();
+    };
+    const timer = window.setInterval(() => void poll(), POLL_MS);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [loadConversations, loadMessages, selectedId]);
 
   useEffect(() => {
@@ -117,8 +156,8 @@ export function MessagesPage() {
     setShowNewDm(true);
     setStaffLoading(true);
     api
-      .getUsers()
-      .then((users) => setStaff(users.filter((u) => u.id !== user?.id && u.isActive !== false)))
+      .getMessageContacts()
+      .then(setStaff)
       .catch(console.error)
       .finally(() => setStaffLoading(false));
   };
@@ -129,6 +168,7 @@ export function MessagesPage() {
       setShowNewDm(false);
       await loadConversations(true);
       setSelectedId(conv.id);
+      setSearchParams({ conversation: conv.id }, { replace: true });
       setMobileConversationOpen(true);
     } catch (err) {
       console.error(err);
@@ -185,7 +225,7 @@ export function MessagesPage() {
     e.target.value = '';
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      alert('File exceeds maximum size of 10 MB');
+      await dialog.alert('File exceeds maximum size of 10 MB', { title: 'File too large' });
       return;
     }
     setAttachedDocument(null);
@@ -221,6 +261,7 @@ export function MessagesPage() {
         ...(sentDoc ? { documentId: sentDoc.id } : {}),
         ...(filePayload ? { file: filePayload } : {}),
       });
+      latestMessageIdsRef.current.set(selectedId, msg.id);
       setMessages((prev) => [...prev, msg]);
       const preview =
         sentText ||
@@ -245,7 +286,7 @@ export function MessagesPage() {
       setDraft(sentText);
       setAttachedDocument(sentDoc);
       setAttachedFile(sentFile);
-      alert(err instanceof Error ? err.message : 'Failed to send message');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to send message', { title: 'Message not sent' });
     } finally {
       setSending(false);
     }
@@ -254,6 +295,12 @@ export function MessagesPage() {
   const hotelChats = conversations.filter((c) => c.type === 'HOTEL');
   const deptChats = conversations.filter((c) => c.type === 'DEPARTMENT');
   const directChats = conversations.filter((c) => c.type === 'DIRECT');
+
+  const selectConversation = (id: string) => {
+    setSelectedId(id);
+    setSearchParams({ conversation: id }, { replace: true });
+    setMobileConversationOpen(true);
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -282,13 +329,13 @@ export function MessagesPage() {
               ) : (
                 <>
                   {hotelChats.length > 0 && (
-                    <ConversationGroup title="Hotel" items={hotelChats} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileConversationOpen(true); }} />
+                    <ConversationGroup title="Hotel" items={hotelChats} selectedId={selectedId} onSelect={selectConversation} />
                   )}
                   {deptChats.length > 0 && (
-                    <ConversationGroup title="My Department" items={deptChats} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileConversationOpen(true); }} />
+                    <ConversationGroup title="My Department" items={deptChats} selectedId={selectedId} onSelect={selectConversation} />
                   )}
                   {directChats.length > 0 && (
-                    <ConversationGroup title="Direct Messages" items={directChats} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileConversationOpen(true); }} />
+                    <ConversationGroup title="Direct Messages" items={directChats} selectedId={selectedId} onSelect={selectConversation} />
                   )}
                 </>
               )}
@@ -589,7 +636,7 @@ export function MessagesPage() {
                             {member.firstName} {member.lastName}
                           </div>
                           <div className="truncate text-xs text-gray-500">
-                            {member.department?.name ?? member.email}
+                            {member.department?.name ?? 'Hotel team'}
                           </div>
                         </div>
                       </button>
@@ -633,13 +680,14 @@ function MessageFileCard({
   className?: string;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const dialog = useAppDialog();
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
       await api.downloadMessageAttachment(conversationId, messageId, attachment.fileName);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Download failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Download failed', { title: 'Download failed' });
     } finally {
       setDownloading(false);
     }

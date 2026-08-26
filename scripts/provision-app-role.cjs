@@ -27,14 +27,16 @@ async function main() {
   try {
     const exists = await db.$queryRawUnsafe('SELECT 1 FROM pg_roles WHERE rolname = $1', roleName);
     if (!exists.length) {
-      await db.$executeRawUnsafe(`CREATE ROLE ${role} LOGIN PASSWORD ${literal(rolePassword)} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`);
+      await db.$executeRawUnsafe(`CREATE ROLE ${role} LOGIN PASSWORD ${literal(rolePassword)} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT`);
     } else {
-      await db.$executeRawUnsafe(`ALTER ROLE ${role} WITH LOGIN PASSWORD ${literal(rolePassword)} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`);
+      await db.$executeRawUnsafe(`ALTER ROLE ${role} WITH LOGIN PASSWORD ${literal(rolePassword)} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT`);
     }
     const databaseName = decodeURIComponent(new URL(adminUrl).pathname.slice(1));
     await db.$executeRawUnsafe(`GRANT CONNECT ON DATABASE ${quotedIdentifier(databaseName)} TO ${role}`);
     await db.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${role}`);
     await db.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role}`);
+    await db.$executeRawUnsafe(`REVOKE INSERT, DELETE ON TABLE "Tenant" FROM ${role}`);
+    await db.$executeRawUnsafe(`REVOKE UPDATE, DELETE ON TABLE "AuditLog" FROM ${role}`);
     await db.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${role}`);
     await db.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role}`);
     await db.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${role}`);

@@ -15,15 +15,19 @@ import {
   Pencil,
   Copy,
   Send,
+  Upload,
 } from 'lucide-react';
 import { StatusBadge, DepartmentBadge } from '@/components/layout/Sidebar';
 import { CategoryBadge } from '@/components/ui/Badges';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { DocumentPreviewCanvas } from '@/components/documents/DocumentPreviewCanvas';
 import { api } from '@/lib/api';
 import type { Document, DocumentCategory } from '@/types';
 import { CATEGORY_LABELS, STATUS_LABELS } from '@/types';
-import { formatDate, formatDateTime } from '@/lib/utils';
+import { fileToBase64, formatDate, formatDateTime } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control/capabilities';
 
 const TABS = ['Preview', 'Details', 'Approvals', 'Versions', 'History', 'Comments', 'Related Documents'];
 
@@ -37,6 +41,8 @@ function formatFileSize(bytes?: number | null): string {
 export function DocumentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
   const [doc, setDoc] = useState<Document | null>(null);
   const [related, setRelated] = useState<Document[]>([]);
   const [activeTab, setActiveTab] = useState('Preview');
@@ -48,7 +54,9 @@ export function DocumentDetailPage() {
   const [savingDetails, setSavingDetails] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   const loadDoc = () => {
     if (!id) return;
@@ -77,6 +85,26 @@ export function DocumentDetailPage() {
     }
   }, [doc, editing]);
 
+  const handleAttachmentUpload = async (file: File | undefined) => {
+    if (!file || !id) return;
+    if (file.size > 10 * 1024 * 1024) {
+      await dialog.alert('File exceeds maximum size of 10 MB', { title: 'Attachment not uploaded' });
+      return;
+    }
+    setUploadingAttachment(true);
+    try {
+      const data = await fileToBase64(file);
+      await api.uploadDocumentFile(id, file.name, file.type, data, true);
+      loadDoc();
+      await dialog.alert('Attachment uploaded and prepared for search', { title: 'Attachment added' });
+    } catch (error) {
+      await dialog.alert(error instanceof Error ? error.message : 'Failed to upload attachment', { title: 'Attachment not uploaded' });
+    } finally {
+      setUploadingAttachment(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+    }
+  };
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
@@ -95,9 +123,9 @@ export function DocumentDetailPage() {
     try {
       const updated = await api.updateDocument(id, { status: 'IN_REVIEW' });
       setDoc(updated);
-      alert('Document sent for review');
+      await dialog.alert('Document sent for review', { title: 'Review started' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to send for review');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to send for review', { title: 'Action failed' });
     } finally {
       setActionLoading(false);
       setShowActions(false);
@@ -106,14 +134,19 @@ export function DocumentDetailPage() {
 
   const handleArchive = async () => {
     if (!id) return;
-    const reason = prompt('Archive reason (optional):') ?? undefined;
+    const reason = await dialog.prompt('Archive reason (optional):', {
+      title: 'Archive document',
+      confirmLabel: 'Archive',
+      tone: 'danger',
+    });
+    if (reason === null) return;
     setActionLoading(true);
     try {
       await api.archiveDocument(id, reason);
-      alert('Document archived');
+      await dialog.alert('Document archived', { title: 'Archived' });
       navigate('/archive');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to archive document');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to archive document', { title: 'Archive failed' });
     } finally {
       setActionLoading(false);
       setShowActions(false);
@@ -134,7 +167,7 @@ export function DocumentDetailPage() {
       });
       navigate(`/documents/${copy.id}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to duplicate document');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to duplicate document', { title: 'Duplicate failed' });
     } finally {
       setActionLoading(false);
       setShowActions(false);
@@ -143,14 +176,18 @@ export function DocumentDetailPage() {
 
   const handleNewVersion = async () => {
     if (!id) return;
-    const changeNote = prompt('Change note for new version (optional):') ?? undefined;
+    const changeNote = await dialog.prompt('Change note for new version (optional):', {
+      title: 'Create new version',
+      confirmLabel: 'Create version',
+    });
+    if (changeNote === null) return;
     setActionLoading(true);
     try {
       const updated = await api.createDocumentVersion(id, undefined, changeNote);
       setDoc(updated);
-      alert(`New version ${updated.version} created`);
+      await dialog.alert(`New version ${updated.version} created`, { title: 'Version created' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create version');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to create version', { title: 'Version failed' });
     } finally {
       setActionLoading(false);
     }
@@ -167,7 +204,7 @@ export function DocumentDetailPage() {
         setIsFavorite(true);
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update favorites');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to update favorites', { title: 'Favorite not updated' });
     }
   };
 
@@ -183,9 +220,9 @@ export function DocumentDetailPage() {
       });
       setDoc(updated);
       setEditing(false);
-      alert('Document updated');
+      await dialog.alert('Document updated', { title: 'Saved' });
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to save', { title: 'Save failed' });
     } finally {
       setSavingDetails(false);
     }
@@ -199,7 +236,7 @@ export function DocumentDetailPage() {
       setDoc((prev) => (prev ? { ...prev, comments: [created, ...(prev.comments ?? [])] } : prev));
       setNewComment('');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add comment');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to add comment', { title: 'Comment not added' });
     } finally {
       setPostingComment(false);
     }
@@ -216,7 +253,7 @@ export function DocumentDetailPage() {
           : prev
       );
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update comment');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to update comment', { title: 'Comment not updated' });
     }
   };
 
@@ -227,6 +264,25 @@ export function DocumentDetailPage() {
       </div>
     );
   }
+
+  const sameDepartment = Boolean(currentUser?.department?.id && currentUser.department.id === doc.departmentId);
+  const isHotelDocumentManager = currentUser?.role === 'SYSTEM_ADMINISTRATOR' || currentUser?.role === 'GENERAL_MANAGER';
+  const isDocumentPrincipal = currentUser?.id === doc.authorId || currentUser?.id === doc.owner?.id;
+  const canUpdate = hasCapability(currentUser, 'documents.update') && (
+    isHotelDocumentManager ||
+    isDocumentPrincipal ||
+    ((currentUser?.role === 'HOD' || currentUser?.role === 'SUPERVISOR') && sameDepartment)
+  );
+  const canArchive = hasCapability(currentUser, 'documents.archive') && (
+    isHotelDocumentManager || (currentUser?.role === 'HOD' && sameDepartment)
+  );
+  const canCreate = hasCapability(currentUser, 'documents.create') && (isHotelDocumentManager || sameDepartment);
+  const canExport = hasCapability(currentUser, 'documents.export');
+  const canViewWorkflow = hasCapability(currentUser, 'workflows.read');
+  const canSendForReview = canUpdate && !doc.isLocked && (doc.status === 'DRAFT' || doc.status === 'NEEDS_REVIEW');
+  const canCreateVersion = canUpdate && !doc.isLocked;
+  const canComment = doc.allowComments !== false;
+  const hasHeaderActions = canSendForReview || canArchive || canCreate || canExport;
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
@@ -251,35 +307,47 @@ export function DocumentDetailPage() {
               <span className="badge-pill bg-gray-100 font-mono text-gray-700">{doc.code}</span>
               <DepartmentBadge name={doc.department.name} color={doc.department.color} />
               <span className="badge-pill bg-gray-100 text-gray-700">{doc.language}</span>
+              {doc.hasFile && doc.searchIndex?.status === 'READY' && (
+                <span className="badge-pill bg-emerald-50 text-emerald-700">File text searchable</span>
+              )}
+              {doc.hasFile && doc.searchIndex?.status === 'PENDING' && (
+                <span className="badge-pill bg-blue-50 text-blue-700">File indexing</span>
+              )}
+              {doc.hasFile && doc.searchIndex?.status === 'OCR_REQUIRED' && (
+                <span className="badge-pill bg-amber-50 text-amber-700">OCR required</span>
+              )}
+              {doc.hasFile && ['FAILED', 'UNSUPPORTED'].includes(doc.searchIndex?.status || '') && (
+                <span className="badge-pill bg-gray-100 text-gray-600">File text unavailable</span>
+              )}
             </div>
           </div>
           <div className="flex max-w-full items-center gap-2 overflow-x-auto pb-1">
-            <ActionBtn
+            {doc.hasFile && doc.allowDownload !== false && <ActionBtn
               icon={Download}
               label="Download"
-              onClick={() => doc.filePath?.startsWith('/uploads') && void api.downloadDocumentFile(doc.id, doc.fileName || `${doc.code}.bin`)}
-            />
-            <ActionBtn icon={Share2} label="Export" onClick={handlePrint} />
-            <ActionBtn icon={Printer} label="Print" onClick={handlePrint} />
-            {doc.status !== 'ARCHIVED' && (
+              onClick={() => void api.downloadDocumentFile(doc.id, doc.fileName || `${doc.code}.bin`)}
+            />}
+            {canExport && <ActionBtn icon={Share2} label="Export" onClick={handlePrint} />}
+            {canExport && <ActionBtn icon={Printer} label="Print" onClick={handlePrint} />}
+            {canArchive && doc.status !== 'ARCHIVED' && (
               <button onClick={handleArchive} disabled={actionLoading} className="btn-secondary disabled:opacity-50">
                 <Archive className="h-4 w-4" />
                 Archive
               </button>
             )}
-            <div className="relative" ref={actionsRef}>
+            {hasHeaderActions && <div className="relative" ref={actionsRef}>
               <button onClick={() => setShowActions(!showActions)} className="btn-primary">
                 Actions <ChevronDown className="h-4 w-4" />
               </button>
               {showActions && (
                 <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                  <ActionMenuItem icon={Send} label="Send for Review" onClick={handleSendForReview} />
-                  <ActionMenuItem icon={Archive} label="Archive" onClick={handleArchive} />
-                  <ActionMenuItem icon={Printer} label="Export" onClick={handlePrint} />
-                  <ActionMenuItem icon={Copy} label="Duplicate" onClick={handleDuplicate} />
+                  {canSendForReview && <ActionMenuItem icon={Send} label="Send for Review" onClick={handleSendForReview} />}
+                  {canArchive && <ActionMenuItem icon={Archive} label="Archive" onClick={handleArchive} />}
+                  {canExport && <ActionMenuItem icon={Printer} label="Export" onClick={handlePrint} />}
+                  {canCreate && <ActionMenuItem icon={Copy} label="Duplicate" onClick={handleDuplicate} />}
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         </div>
       </div>
@@ -321,7 +389,29 @@ export function DocumentDetailPage() {
                     </div>
                   )}
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
-                    <h4 className="mb-3 text-sm font-semibold text-hoterra-navy">Attachments ({doc.attachments?.length ?? 0})</h4>
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-hoterra-navy">Attachments ({doc.attachments?.length ?? 0})</h4>
+                      {canUpdate && !doc.isLocked && (
+                        <>
+                          <input
+                            ref={attachmentInputRef}
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp"
+                            onChange={(event) => void handleAttachmentUpload(event.target.files?.[0])}
+                          />
+                          <button
+                            type="button"
+                            disabled={uploadingAttachment}
+                            onClick={() => attachmentInputRef.current?.click()}
+                            className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-gray-200 px-2 text-xs text-hoterra-steel hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            {uploadingAttachment ? 'Uploading…' : 'Add'}
+                          </button>
+                        </>
+                      )}
+                    </div>
                     <div className="space-y-2">
                       {(doc.attachments ?? []).length === 0 ? (
                         <p className="text-xs text-gray-400">No attachments</p>
@@ -330,14 +420,21 @@ export function DocumentDetailPage() {
                           <div key={a.id} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                             <div className="min-w-0">
                               <p className="truncate text-xs font-medium text-gray-800">{a.fileName}</p>
-                              <p className="text-[10px] text-gray-400">{formatFileSize(a.fileSize)}</p>
+                              <p className="text-[10px] text-gray-400">
+                                {formatFileSize(a.fileSize)}
+                                {a.searchIndex?.status === 'READY' && ' · Searchable'}
+                                {a.searchIndex?.status === 'PENDING' && ' · Indexing'}
+                                {a.searchIndex?.status === 'OCR_REQUIRED' && ' · OCR required'}
+                                {['FAILED', 'UNSUPPORTED'].includes(a.searchIndex?.status || '') && ' · Text unavailable'}
+                              </p>
                             </div>
-                            <button
-                              onClick={() => a.filePath.startsWith('/uploads') && void api.downloadDocumentAttachment(doc.id, a.id, a.fileName)}
+                            {a.canDownload && <button
+                              onClick={() => a.canDownload && void api.downloadDocumentAttachment(doc.id, a.id, a.fileName)}
                               className="rounded p-1 text-gray-400 hover:bg-white hover:text-hoterra-steel"
+                              aria-label={`Download ${a.fileName}`}
                             >
                               <Download className="h-3.5 w-3.5" />
-                            </button>
+                            </button>}
                           </div>
                         ))
                       )}
@@ -351,18 +448,18 @@ export function DocumentDetailPage() {
               <div className="mx-auto max-w-2xl rounded-xl border border-gray-200 bg-white p-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="font-semibold text-hoterra-navy">Document Metadata</h3>
-                  {!editing ? (
+                  {!editing && canUpdate && !doc.isLocked ? (
                     <button onClick={() => setEditing(true)} className="btn-secondary py-1.5 text-xs">
                       <Pencil className="h-3.5 w-3.5" /> Edit
                     </button>
-                  ) : (
+                  ) : editing ? (
                     <div className="flex gap-2">
                       <button onClick={() => setEditing(false)} className="btn-secondary py-1.5 text-xs">Cancel</button>
                       <button onClick={handleSaveDetails} disabled={savingDetails} className="btn-primary py-1.5 text-xs disabled:opacity-50">
                         {savingDetails ? 'Saving...' : 'Save'}
                       </button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 {editing ? (
                   <div className="space-y-4">
@@ -410,9 +507,9 @@ export function DocumentDetailPage() {
               <div className="mx-auto max-w-2xl rounded-xl border border-gray-200 bg-white p-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="font-semibold text-hoterra-navy">Version History</h3>
-                  <button onClick={handleNewVersion} disabled={actionLoading} className="btn-primary py-1.5 text-xs disabled:opacity-50">
+                  {canCreateVersion && <button onClick={handleNewVersion} disabled={actionLoading} className="btn-primary py-1.5 text-xs disabled:opacity-50">
                     Create New Version
-                  </button>
+                  </button>}
                 </div>
                 <div className="space-y-3">
                   {(doc.versions ?? []).length === 0 ? (
@@ -441,7 +538,7 @@ export function DocumentDetailPage() {
             {activeTab === 'Comments' && (
               <div className="mx-auto max-w-2xl rounded-xl border border-gray-200 bg-white p-6">
                 <h3 className="mb-4 font-semibold text-hoterra-navy">Comments</h3>
-                <div className="mb-4 flex gap-2">
+                {canComment && <div className="mb-4 flex gap-2">
                   <input
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
@@ -452,7 +549,7 @@ export function DocumentDetailPage() {
                   <button onClick={handleAddComment} disabled={postingComment || !newComment.trim()} className="btn-primary disabled:opacity-50">
                     Post
                   </button>
-                </div>
+                </div>}
                 <div className="space-y-3">
                   {(doc.comments ?? []).length === 0 ? (
                     <p className="text-sm text-gray-400">No comments yet</p>
@@ -464,14 +561,14 @@ export function DocumentDetailPage() {
                             <p className="text-xs font-medium text-gray-800">{c.user.firstName} {c.user.lastName}</p>
                             <p className="text-[10px] text-gray-400">{formatDateTime(c.createdAt)}</p>
                           </div>
-                          <button
+                          {(c.userId === currentUser?.id || canUpdate) && <button
                             onClick={() => handleResolveComment(c.id, c.status)}
                             className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                               c.status === 'resolved' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                             }`}
                           >
                             {c.status === 'resolved' ? 'Resolved' : 'Mark Resolved'}
-                          </button>
+                          </button>}
                         </div>
                         <p className="text-sm text-gray-600">{c.text}</p>
                       </div>
@@ -530,6 +627,14 @@ export function DocumentDetailPage() {
                         <p className="text-sm font-medium">{sig.position}</p>
                         <p className="text-xs text-gray-600">{sig.fullName}</p>
                         <p className="text-xs text-gray-400">{formatDate(sig.signedAt)}</p>
+                        <p className="mt-1 text-[10px] text-gray-400">
+                          Version {sig.documentVersion ?? doc.version}
+                          {sig.docHash && (
+                            <span className="ml-1 font-mono" title={sig.docHash}>
+                              · {sig.docHash.slice(0, 18)}…
+                            </span>
+                          )}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -552,9 +657,9 @@ export function DocumentDetailPage() {
           <section className="mb-6">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-hoterra-navy">Document Information</h3>
-              <button onClick={() => { setActiveTab('Details'); setEditing(true); }} className="flex items-center gap-1 text-xs text-hoterra-steel hover:underline">
+              {canUpdate && !doc.isLocked && <button onClick={() => { setActiveTab('Details'); setEditing(true); }} className="flex items-center gap-1 text-xs text-hoterra-steel hover:underline">
                 <Pencil className="h-3 w-3" /> Edit
-              </button>
+              </button>}
             </div>
             <dl className="space-y-2 text-xs">
               <InfoRow label="Document Code" value={doc.code} />
@@ -571,7 +676,7 @@ export function DocumentDetailPage() {
           <section className="mb-6">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-hoterra-navy">Approval Status</h3>
-              <Link to="/workflows" className="text-xs text-hoterra-steel hover:underline">View Workflow →</Link>
+              {canViewWorkflow && <Link to="/workflows" className="text-xs text-hoterra-steel hover:underline">View Workflow →</Link>}
             </div>
             <div className="space-y-3">
               {(doc.signatures ?? []).map((sig) => (
@@ -590,12 +695,12 @@ export function DocumentDetailPage() {
             <h3 className="mb-3 text-sm font-semibold text-hoterra-navy">Quick Actions</h3>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { icon: FileText, label: 'New Version', action: handleNewVersion },
-                { icon: History, label: 'Send for Review', action: handleSendForReview },
-                { icon: Printer, label: 'Print', action: handlePrint },
+                ...(canCreateVersion ? [{ icon: FileText, label: 'New Version', action: handleNewVersion }] : []),
+                ...(canSendForReview ? [{ icon: History, label: 'Send for Review', action: handleSendForReview }] : []),
+                ...(canExport ? [{ icon: Printer, label: 'Print', action: handlePrint }] : []),
                 { icon: Star, label: isFavorite ? 'Remove Favorite' : 'Add to Favorites', action: handleToggleFavorite },
                 { icon: Link2, label: 'Copy Link', action: () => navigator.clipboard.writeText(window.location.href) },
-                { icon: Archive, label: 'Archive Document', action: handleArchive, danger: true },
+                ...(canArchive ? [{ icon: Archive, label: 'Archive Document', action: handleArchive, danger: true }] : []),
               ].map(({ icon: Icon, label, action, danger }) => (
                 <button
                   key={label}

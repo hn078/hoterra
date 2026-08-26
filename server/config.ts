@@ -23,8 +23,10 @@ export const runtimeConfig = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
   requestBodyLimit: process.env.REQUEST_BODY_LIMIT || '15mb',
   globalRateLimitMax: integerEnv('GLOBAL_RATE_LIMIT_MAX', 600, 10, 100_000),
+  globalIpRateLimitMax: integerEnv('GLOBAL_IP_RATE_LIMIT_MAX', 10_000, 100, 1_000_000),
   loginRateLimitMax: integerEnv('LOGIN_RATE_LIMIT_MAX', 10, 3, 1_000),
   emailDeliveryEnabled: process.env.EMAIL_DELIVERY_ENABLED === 'true',
+  vendorSimulationEnabled: !isProduction && process.env.ENABLE_VENDOR_SIMULATION === 'true',
 };
 
 export function allowedOrigins(): string[] {

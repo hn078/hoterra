@@ -94,7 +94,7 @@ function SignatureOverlay({
   highlighted: boolean;
   onRemove?: () => void;
 }) {
-  const imageSrc = useProtectedAssetUrl(signature?.imagePath ? `/files/signatures/${signature.id}` : null);
+  const imageSrc = useProtectedAssetUrl(signature?.hasImage || signature?.imagePath ? `/files/signatures/${signature.id}` : null);
 
   return (
     <div

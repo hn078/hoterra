@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Search, Upload, Bold, Italic, List, Link2 } from 'lucide-react';
+import { Check, Search, Upload, X } from 'lucide-react';
 import { Header } from '@/components/layout/Sidebar';
 import { SwitchField } from '@/components/ui/Switch';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import type { Department, Template, User, DocumentCategory, DocumentPriority, WorkflowItem } from '@/types';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/types';
@@ -13,6 +14,8 @@ import {
   WORKFLOW_STATUS_LABELS,
 } from '@/lib/workflows';
 import { formatDate } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control/capabilities';
 
 const STEPS = [
   'Document Details',
@@ -24,67 +27,94 @@ const STEPS = [
 
 export function CreateDocumentPage() {
   const navigate = useNavigate();
+  const dialog = useAppDialog();
+  const currentUser = useAuthStore((state) => state.user);
+  const canReadDepartments = hasCapability(currentUser, 'departments.read');
+  const canReadTemplates = hasCapability(currentUser, 'templates.read');
+  const canReadUsers = hasCapability(currentUser, 'users.directory.read');
+  const canReadWorkflows = hasCapability(currentUser, 'workflows.read');
   const [step, setStep] = useState(0);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [tagInput, setTagInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const [optionsError, setOptionsError] = useState('');
   const [form, setForm] = useState({
-    title: 'Credit Card Handling Procedure',
-    code: 'FO-SOP-001',
+    title: '',
+    code: '',
     departmentId: '',
     category: 'SOP' as DocumentCategory,
     version: '1.0',
-    description:
-      'This procedure outlines the steps for securely handling guest credit card information at the front desk, including authorization, storage, and incident reporting.',
+    description: '',
     language: 'English',
-    tags: ['Credit Card', 'Payment'],
-    nextReviewDate: '2026-06-12',
-    effectiveDate: '2025-06-12',
+    tags: [] as string[],
+    nextReviewDate: '',
+    effectiveDate: '',
     ownerId: '',
-    authorId: '',
     content: '',
     workflowId: '',
     priority: 'MEDIUM' as DocumentPriority,
-    isPublic: false,
     allowDownload: true,
     allowComments: true,
-    notifyOnPublish: true,
-    requireAcknowledgment: false,
   });
 
   useEffect(() => {
+    setLoadingOptions(true);
+    setOptionsError('');
     Promise.all([
-      api.getDepartments(),
-      api.getTemplates(),
-      api.getUsers(),
-      api.getWorkflows(),
+      canReadDepartments
+        ? api.getDepartments()
+        : Promise.resolve(currentUser?.department ? [currentUser.department] : [] as Department[]),
+      canReadTemplates ? api.getTemplates() : Promise.resolve([] as Template[]),
+      canReadUsers ? api.getUsers() : Promise.resolve(currentUser ? [currentUser] : [] as User[]),
+      canReadWorkflows ? api.getWorkflows() : Promise.resolve([] as WorkflowItem[]),
     ]).then(([depts, tmpls, usrs, wfs]) => {
       const activeWorkflows = wfs
         .map((w) => ({ ...w, steps: parseWorkflowSteps(w.steps) }))
         .filter((w) => w.status === 'ACTIVE');
       setDepartments(depts);
-      setTemplates(tmpls);
+      const activeTemplates = tmpls.filter((template) => template.isActive === true && template.status === 'ACTIVE');
+      setTemplates(activeTemplates);
       setUsers(usrs);
       setWorkflows(activeWorkflows);
       const defaultDepartment = depts.find((d) => d.code === 'FO') || depts[0];
       const departmentOwner = usrs.find((u) => u.department?.id === defaultDepartment?.id && u.role === 'HOD')
-        || usrs.find((u) => u.department?.id === defaultDepartment?.id);
-      const generalManager = usrs.find((u) => u.role === 'GENERAL_MANAGER');
+        || usrs.find((u) => u.department?.id === defaultDepartment?.id)
+        || currentUser;
       const defaultWf = activeWorkflows.find((w) => w.isDefault) || activeWorkflows[0];
       setForm((f) => ({
         ...f,
         departmentId: defaultDepartment?.id || '',
         ownerId: departmentOwner?.id || '',
-        authorId: generalManager?.id || '',
         workflowId: defaultWf?.id || '',
       }));
-      setSelectedTemplate(tmpls[0]?.id || null);
-    });
-  }, []);
+      const initialTemplate = activeTemplates.find((template) => !template.departmentId || template.departmentId === defaultDepartment?.id);
+      setSelectedTemplate(initialTemplate?.id || null);
+      if (!defaultDepartment) setOptionsError('Your account has no department available for document creation.');
+    }).catch((error) => {
+      console.error(error);
+      setOptionsError(error instanceof Error ? error.message : 'Document options could not be loaded');
+    }).finally(() => setLoadingOptions(false));
+  }, [canReadDepartments, canReadTemplates, canReadUsers, canReadWorkflows, currentUser?.id]);
+
+  const availableTemplates = templates.filter((template) => (
+    (!template.departmentId || template.departmentId === form.departmentId)
+    && (!templateSearch.trim() || `${template.name} ${template.description ?? ''}`.toLowerCase().includes(templateSearch.trim().toLowerCase()))
+  ));
+
+  useEffect(() => {
+    if (selectedTemplate && templates.some((template) => (
+      template.id === selectedTemplate && (!template.departmentId || template.departmentId === form.departmentId)
+    ))) return;
+    const next = templates.find((template) => !template.departmentId || template.departmentId === form.departmentId);
+    setSelectedTemplate(next?.id ?? null);
+  }, [form.departmentId, selectedTemplate, templates]);
 
   const getDeptName = () => departments.find((d) => d.id === form.departmentId)?.name || '—';
   const getUserName = (id: string) => {
@@ -105,6 +135,9 @@ export function CreateDocumentPage() {
     });
 
   const createWithUpload = async () => {
+    if (!form.title.trim()) throw new Error('Document title is required');
+    if (!form.departmentId) throw new Error('A permitted department is required');
+    if (selectedFile && selectedFile.size > 10 * 1024 * 1024) throw new Error('File exceeds maximum size of 10 MB');
     const doc = await api.createDocument({
       title: form.title,
       code: form.code,
@@ -116,14 +149,13 @@ export function CreateDocumentPage() {
       tags: form.tags,
       nextReviewDate: form.nextReviewDate,
       effectiveDate: form.effectiveDate,
-      ownerId: form.ownerId,
-      authorId: form.authorId,
+      ownerId: form.ownerId || undefined,
       content: form.content,
       workflowId: form.workflowId || undefined,
       priority: form.priority,
       allowDownload: form.allowDownload,
       allowComments: form.allowComments,
-      templateId: selectedTemplate,
+      templateId: selectedTemplate || undefined,
     });
 
     if (selectedFile) {
@@ -140,7 +172,7 @@ export function CreateDocumentPage() {
       const doc = await createWithUpload();
       navigate(`/documents/${doc.id}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to save', { title: 'Draft not saved' });
     } finally {
       setSaving(false);
     }
@@ -152,7 +184,7 @@ export function CreateDocumentPage() {
       const doc = await createWithUpload();
       navigate(`/documents/${doc.id}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create document');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to create document', { title: 'Document not created' });
     } finally {
       setSaving(false);
     }
@@ -160,7 +192,27 @@ export function CreateDocumentPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setSelectedFile(file);
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      void dialog.alert('File exceeds maximum size of 10 MB', { title: 'File too large' });
+      e.target.value = '';
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const addTag = () => {
+    const tag = tagInput.trim();
+    if (!tag || form.tags.includes(tag) || form.tags.length >= 50) return;
+    setForm((current) => ({ ...current, tags: [...current.tags, tag.slice(0, 100)] }));
+    setTagInput('');
+  };
+
+  const selectDepartment = (departmentId: string) => {
+    const owner = users.find((user) => user.department?.id === departmentId && user.role === 'HOD')
+      || users.find((user) => user.department?.id === departmentId)
+      || currentUser;
+    setForm((current) => ({ ...current, departmentId, ownerId: owner?.id || '' }));
   };
 
   const goNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
@@ -213,13 +265,19 @@ export function CreateDocumentPage() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page lg:flex-row lg:overflow-hidden">
         <div className="flex-1 overflow-y-auto p-3 sm:p-6">
           <div className="mx-auto max-w-3xl">
+            {loadingOptions && (
+              <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500">Loading permitted document options...</div>
+            )}
+            {optionsError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{optionsError}</div>
+            )}
             {step === 0 && (
               <div className="space-y-5">
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Department">
                     <select
                       value={form.departmentId}
-                      onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+                      onChange={(e) => selectDepartment(e.target.value)}
                       className="input"
                     >
                       {departments.map((d) => (
@@ -286,32 +344,30 @@ export function CreateDocumentPage() {
                   </Field>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Author">
-                    <select
-                      value={form.authorId}
-                      onChange={(e) => setForm({ ...form, authorId: e.target.value })}
-                      className="input"
-                    >
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.firstName} {u.lastName}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="input flex items-center bg-gray-50 text-gray-600">
+                      {currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Current user'}
+                    </div>
                   </Field>
                   <Field label="Document Owner (HOD)">
-                    <select
-                      value={form.ownerId}
-                      onChange={(e) => setForm({ ...form, ownerId: e.target.value })}
-                      className="input"
-                    >
-                      {users.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.firstName} {u.lastName}
-                        </option>
-                      ))}
-                    </select>
+                    {canReadUsers ? (
+                      <select
+                        value={form.ownerId}
+                        onChange={(e) => setForm({ ...form, ownerId: e.target.value })}
+                        className="input"
+                      >
+                        {users.filter((user) => user.department?.id === form.departmentId).map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.firstName} {u.lastName}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="input flex items-center bg-gray-50 text-gray-600">
+                        {getUserName(form.ownerId || currentUser?.id || '')}
+                      </div>
+                    )}
                   </Field>
                 </div>
 
@@ -328,18 +384,29 @@ export function CreateDocumentPage() {
                 </Field>
 
                 <Field label="Tags">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {form.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="rounded-full bg-hoterra-steel/10 px-3 py-1 text-xs font-medium text-hoterra-steel"
+                        className="inline-flex items-center gap-1 rounded-full bg-hoterra-steel/10 px-3 py-1 text-xs font-medium text-hoterra-steel"
                       >
                         {tag}
+                        <button type="button" aria-label={`Remove ${tag}`} onClick={() => setForm((current) => ({ ...current, tags: current.tags.filter((item) => item !== tag) }))}>
+                          <X className="h-3 w-3" />
+                        </button>
                       </span>
                     ))}
-                    <button type="button" className="rounded-full border border-dashed border-gray-300 px-3 py-1 text-xs text-gray-500">
-                      + Add Tag
-                    </button>
+                    <div className="flex min-w-48 flex-1 gap-2">
+                      <input
+                        value={tagInput}
+                        maxLength={100}
+                        placeholder="Add a tag"
+                        onChange={(event) => setTagInput(event.target.value)}
+                        onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addTag(); } }}
+                        className="input py-1.5 text-xs"
+                      />
+                      <button type="button" onClick={addTag} className="btn-secondary py-1.5 text-xs">Add</button>
+                    </div>
                   </div>
                 </Field>
 
@@ -366,14 +433,6 @@ export function CreateDocumentPage() {
                   />
                 </Field>
 
-                <Field label="Document Cover">
-                  <div className="rounded-xl border-2 border-dashed border-gray-200 p-8 text-center">
-                    <p className="text-sm text-gray-500">
-                      Drag and drop cover image here, or click to browse
-                    </p>
-                    <p className="mt-1 text-xs text-gray-400">JPG, PNG up to 5MB (optional)</p>
-                  </div>
-                </Field>
               </div>
             )}
 
@@ -383,14 +442,14 @@ export function CreateDocumentPage() {
                   <div className="rounded-xl border-2 border-dashed border-gray-200 p-10 text-center transition-colors hover:border-hoterra-steel hover:bg-gray-50">
                     <Upload className="mx-auto mb-3 h-10 w-10 text-gray-400" />
                     <p className="text-sm font-medium text-gray-700">
-                      Drag and drop files here, or click to browse
+                      Choose a file to upload
                     </p>
                     <p className="mt-1 text-xs text-gray-400">
-                      PDF, DOCX, XLSX, PPTX up to 25MB
+                      PDF, DOCX, XLSX, CSV, TXT or image up to 10 MB
                     </p>
                     <input
                       type="file"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp"
                       onChange={handleFileChange}
                       className="mt-4 block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-hoterra-navy file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-hoterra-steel"
                     />
@@ -402,18 +461,6 @@ export function CreateDocumentPage() {
 
                 <Field label="Document Content">
                   <div className="overflow-hidden rounded-xl border border-gray-200">
-                    <div className="flex items-center gap-1 border-b border-gray-200 bg-gray-50 px-3 py-2">
-                      {[Bold, Italic, List, Link2].map((Icon, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          className="rounded p-1.5 text-gray-500 hover:bg-gray-200 hover:text-gray-700"
-                        >
-                          <Icon className="h-4 w-4" />
-                        </button>
-                      ))}
-                      <span className="ml-2 text-xs text-gray-400">Rich text editor — coming soon</span>
-                    </div>
                     <textarea
                       value={form.content}
                       onChange={(e) => setForm({ ...form, content: e.target.value })}
@@ -430,12 +477,6 @@ export function CreateDocumentPage() {
               <div className="space-y-5">
                 <h3 className="text-sm font-semibold text-hoterra-navy">Access & Visibility</h3>
                 <SwitchField
-                  label="Public Document"
-                  description="Make this document visible to all authenticated users"
-                  checked={form.isPublic}
-                  onChange={(v) => setForm({ ...form, isPublic: v })}
-                />
-                <SwitchField
                   label="Allow Download"
                   description="Users can download a copy of this document"
                   checked={form.allowDownload}
@@ -447,26 +488,13 @@ export function CreateDocumentPage() {
                   checked={form.allowComments}
                   onChange={(v) => setForm({ ...form, allowComments: v })}
                 />
-                <SwitchField
-                  label="Notify on Publish"
-                  description="Send notifications when document is published"
-                  checked={form.notifyOnPublish}
-                  onChange={(v) => setForm({ ...form, notifyOnPublish: v })}
-                />
-                <SwitchField
-                  label="Require Acknowledgment"
-                  description="Users must acknowledge reading this document"
-                  checked={form.requireAcknowledgment}
-                  onChange={(v) => setForm({ ...form, requireAcknowledgment: v })}
-                />
-
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                {form.nextReviewDate && <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
                   <h4 className="text-sm font-semibold text-hoterra-navy">Review Schedule</h4>
                   <p className="mt-1 text-xs text-gray-600">
                     Next review scheduled for {formatDate(form.nextReviewDate)}. You will receive
                     a reminder 30 days before the review date.
                   </p>
-                </div>
+                </div>}
               </div>
             )}
 
@@ -477,9 +505,14 @@ export function CreateDocumentPage() {
                   review and sign before publication.
                 </p>
                 <div className="space-y-3">
-                  {workflows.length === 0 && (
+                  {!canReadWorkflows && (
+                    <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                      Your role does not manage workflow selection. The standard document approval policy will apply.
+                    </p>
+                  )}
+                  {canReadWorkflows && workflows.length === 0 && (
                     <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                      No active workflows. Activate a workflow in Settings → Workflows before creating documents.
+                      No active workflow is available. The document can be saved as draft, but a workflow must be activated before review.
                     </p>
                   )}
                   {workflows.map((wf) => (
@@ -547,8 +580,8 @@ export function CreateDocumentPage() {
                   <SummaryRow label="Department" value={getDeptName()} />
                   <SummaryRow label="Category" value={CATEGORY_LABELS[form.category]} />
                   <SummaryRow label="Version" value={form.version} />
-                  <SummaryRow label="Author" value={getUserName(form.authorId)} />
-                  <SummaryRow label="Owner (HOD)" value={getUserName(form.ownerId)} />
+                  <SummaryRow label="Author" value={currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : '—'} />
+                  <SummaryRow label="Owner" value={getUserName(form.ownerId || currentUser?.id || '')} />
                   <SummaryRow label="Language" value={form.language} />
                   <SummaryRow label="Effective Date" value={formatDate(form.effectiveDate)} />
                   <SummaryRow label="Next Review" value={formatDate(form.nextReviewDate)} />
@@ -568,11 +601,8 @@ export function CreateDocumentPage() {
                 </SummarySection>
 
                 <SummarySection title="Settings">
-                  <SummaryRow label="Public" value={form.isPublic ? 'Yes' : 'No'} />
                   <SummaryRow label="Allow Download" value={form.allowDownload ? 'Yes' : 'No'} />
                   <SummaryRow label="Allow Comments" value={form.allowComments ? 'Yes' : 'No'} />
-                  <SummaryRow label="Notify on Publish" value={form.notifyOnPublish ? 'Yes' : 'No'} />
-                  <SummaryRow label="Require Acknowledgment" value={form.requireAcknowledgment ? 'Yes' : 'No'} />
                 </SummarySection>
 
                 <SummarySection title="Approval Workflow">
@@ -583,18 +613,20 @@ export function CreateDocumentPage() {
           </div>
         </div>
 
-        {step === 0 && (
+        {step === 0 && canReadTemplates && (
           <aside className="card order-first max-h-80 w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none lg:order-none lg:max-h-none lg:w-80 lg:border-l lg:border-b-0 lg:p-5">
             <h3 className="mb-4 font-semibold text-hoterra-navy">Choose Template</h3>
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 placeholder="Search templates..."
+                value={templateSearch}
+                onChange={(event) => setTemplateSearch(event.target.value)}
                 className="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-sm"
               />
             </div>
             <div className="space-y-2">
-              {templates.map((t) => (
+              {availableTemplates.map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -617,7 +649,7 @@ export function CreateDocumentPage() {
                 </button>
               ))}
             </div>
-            <button type="button" className="mt-4 text-xs font-medium text-hoterra-steel hover:underline">
+            <button type="button" onClick={() => navigate('/templates')} className="mt-4 text-xs font-medium text-hoterra-steel hover:underline">
               View all templates →
             </button>
 
@@ -636,7 +668,7 @@ export function CreateDocumentPage() {
         <button
           type="button"
           onClick={handleSaveDraft}
-          disabled={saving}
+          disabled={saving || loadingOptions || Boolean(optionsError)}
           className="rounded-lg border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save as Draft'}
@@ -655,7 +687,8 @@ export function CreateDocumentPage() {
             <button
               type="button"
               onClick={goNext}
-              className="btn-primary px-5 py-2.5"
+              disabled={loadingOptions || Boolean(optionsError)}
+              className="btn-primary px-5 py-2.5 disabled:opacity-50"
             >
               Next: {STEPS[step + 1]} →
             </button>
@@ -663,7 +696,7 @@ export function CreateDocumentPage() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={saving}
+              disabled={saving || loadingOptions || Boolean(optionsError)}
               className="btn-primary px-5 py-2.5 disabled:opacity-50"
             >
               {saving ? 'Creating...' : 'Create Document'}

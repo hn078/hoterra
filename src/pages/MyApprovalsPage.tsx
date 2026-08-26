@@ -9,9 +9,12 @@ import { CategoryBadge } from '@/components/ui/Badges';
 import { PageTabs } from '@/components/ui/PageTabs';
 import { Pagination } from '@/components/ui/Pagination';
 import { UserAvatar } from '@/components/ui/UserAvatar';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { api } from '@/lib/api';
 import type { Document, DocumentPriority, Department } from '@/types';
 import { formatDate } from '@/lib/utils';
+import { useAuthStore } from '@/store/auth';
+import { hasCapability } from '@/modules/access-control/capabilities';
 
 const PRIORITY_STYLE: Record<DocumentPriority, string> = {
   HIGH: 'text-red-600 bg-red-50',
@@ -28,6 +31,10 @@ const TABS = [
 ];
 
 export function MyApprovalsPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const dialog = useAppDialog();
+  const canArchive = hasCapability(currentUser, 'documents.archive');
+  const canReadDepartments = hasCapability(currentUser, 'departments.read');
   const [tab, setTab] = useState('pending');
   const [docs, setDocs] = useState<Document[]>([]);
   const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0, returned: 0, completed: 0 });
@@ -43,8 +50,8 @@ export function MyApprovalsPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
 
   useEffect(() => {
-    api.getDepartments().then(setDepartments).catch(console.error);
-  }, []);
+    if (canReadDepartments) api.getDepartments().then(setDepartments).catch(console.error);
+  }, [canReadDepartments]);
 
   useEffect(() => {
     api.getApprovals(tab, page).then((res) => {
@@ -79,7 +86,16 @@ export function MyApprovalsPage() {
   };
 
   const handleBulkArchive = async () => {
-    if (selected.size === 0) return alert('Select documents first');
+    if (!canArchive) return;
+    if (selected.size === 0) {
+      await dialog.alert('Select documents first', { title: 'No documents selected' });
+      return;
+    }
+    if (!await dialog.confirm(`Archive ${selected.size} selected document(s)?`, {
+      title: 'Archive selected documents',
+      confirmLabel: 'Archive',
+      tone: 'danger',
+    })) return;
     setBulkLoading(true);
     try {
       await api.bulkArchiveDocuments([...selected]);
@@ -88,7 +104,7 @@ export function MyApprovalsPage() {
       setDocs(res.data);
       setCounts(res.counts);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Bulk archive failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Bulk archive failed', { title: 'Archive failed' });
     } finally {
       setBulkLoading(false);
       setShowBulkMenu(false);
@@ -96,17 +112,30 @@ export function MyApprovalsPage() {
   };
 
   const handleBulkApprove = async () => {
-    const first = [...selected][0];
-    if (!first) return alert('Select a document first');
+    const documentIds = [...selected];
+    if (!documentIds.length) {
+      await dialog.alert('Select at least one document first', { title: 'No documents selected' });
+      return;
+    }
+    if (!await dialog.confirm(`Approve ${documentIds.length} selected document(s)?`, {
+      title: 'Confirm approvals',
+      confirmLabel: 'Approve all',
+    })) return;
     setBulkLoading(true);
     try {
-      await api.approveDocument(first, 'approve');
+      const results = await Promise.allSettled(documentIds.map((documentId) => api.approveDocument(documentId, 'approve')));
+      const failures = results.filter((result) => result.status === 'rejected');
       setSelected(new Set());
       const res = await api.getApprovals(tab, page);
       setDocs(res.data);
       setCounts(res.counts);
+      if (failures.length) {
+        await dialog.alert(`${documentIds.length - failures.length} approved; ${failures.length} could not be approved.`, {
+          title: 'Approval partially completed',
+        });
+      }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Approve failed');
+      await dialog.alert(err instanceof Error ? err.message : 'Approve failed', { title: 'Approval incomplete' });
     } finally {
       setBulkLoading(false);
       setShowBulkMenu(false);
@@ -145,29 +174,29 @@ export function MyApprovalsPage() {
               className="w-full rounded-lg border border-gray-200 py-2.5 pl-10 pr-4 text-sm focus:border-hoterra-steel focus:outline-none focus:ring-1 focus:ring-hoterra-steel"
             />
           </div>
-          <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="filter-select">
+          {canReadDepartments && <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="filter-select">
             <option value="">All Departments</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          </select>}
           <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)} className="filter-select">
             <option value="">All Priority</option>
             <option value="HIGH">High</option>
             <option value="MEDIUM">Medium</option>
             <option value="LOW">Low</option>
           </select>
-          <div className="relative">
+          {(tab === 'pending' || canArchive) && <div className="relative">
             <button onClick={() => setShowBulkMenu(!showBulkMenu)} disabled={bulkLoading} className="btn-primary disabled:opacity-50">
               Bulk Actions ▾
             </button>
             {showBulkMenu && (
               <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                <button onClick={handleBulkArchive} className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Archive Selected</button>
+                {canArchive && <button onClick={handleBulkArchive} className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Archive Selected</button>}
                 {tab === 'pending' && (
-                  <button onClick={handleBulkApprove} className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Approve First Selected</button>
+                  <button onClick={handleBulkApprove} className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Approve Selected</button>
                 )}
               </div>
             )}
-          </div>
+          </div>}
         </div>
       </div>
 

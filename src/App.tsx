@@ -2,10 +2,12 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Building2, ExternalLink, Loader2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { AppDialogProvider } from '@/components/ui/AppDialogProvider';
 import { LoginPage } from '@/pages/LoginPage';
 import { LandingPage } from '@/pages/LandingPage';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/lib/api';
+import { CapabilityRoute, type Capability } from '@/modules/access-control';
 
 const isFileProtocol =
   typeof window !== 'undefined' &&
@@ -45,6 +47,10 @@ function RouteFallback() {
       <Loader2 className="h-6 w-6 animate-spin text-hoterra-gold" aria-label="Loading page" />
     </div>
   );
+}
+
+function protectedPage(capability: Capability, page: React.ReactNode) {
+  return <CapabilityRoute require={capability}>{page}</CapabilityRoute>;
 }
 
 type TenantState =
@@ -125,8 +131,9 @@ export default function App() {
   }, [checkAuth]);
 
   return (
-    <TenantGuard>
-      <Router>
+    <AppDialogProvider>
+      <TenantGuard>
+        <Router>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
         <Route
@@ -142,37 +149,38 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/vendor/order/:token" element={<VendorPortalPage />} />
         <Route element={<AppLayout />}>
-          <Route path="/app" element={<DashboardPage />} />
-          <Route path="/documents" element={<DocumentsPage />} />
-          <Route path="/documents/create" element={<CreateDocumentPage />} />
-          <Route path="/documents/:id" element={<DocumentDetailPage />} />
-          <Route path="/approvals" element={<MyApprovalsPage />} />
-          <Route path="/approvals/:id/review" element={<ApprovalReviewPage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/templates" element={<TemplatesPage />} />
-          <Route path="/templates/create" element={<Navigate to="/templates/new/edit" replace />} />
-          <Route path="/templates/new/edit" element={<TemplateEditorPage />} />
-          <Route path="/templates/:id/edit" element={<TemplateEditorPage />} />
-          <Route path="/departments" element={<DepartmentsPage />} />
-          <Route path="/departments/:id" element={<DepartmentDetailPage />} />
-          <Route path="/workflows" element={<WorkflowsPage />} />
-          <Route path="/workflows/:id/designer" element={<WorkflowDesignerPage />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/users/roles" element={<RolesPermissionsPage />} />
+          <Route path="/app" element={protectedPage('dashboard.view', <DashboardPage />)} />
+          <Route path="/documents" element={protectedPage('documents.read', <DocumentsPage />)} />
+          <Route path="/documents/create" element={protectedPage('documents.create', <CreateDocumentPage />)} />
+          <Route path="/documents/:id" element={protectedPage('documents.read', <DocumentDetailPage />)} />
+          <Route path="/approvals" element={protectedPage('approvals.read', <MyApprovalsPage />)} />
+          <Route path="/approvals/:id/review" element={protectedPage('approvals.read', <ApprovalReviewPage />)} />
+          <Route path="/search" element={protectedPage('search.use', <SearchPage />)} />
+          <Route path="/templates" element={protectedPage('templates.read', <TemplatesPage />)} />
+          <Route path="/templates/create" element={protectedPage('templates.manage', <Navigate to="/templates/new/edit" replace />)} />
+          <Route path="/templates/new/edit" element={protectedPage('templates.manage', <TemplateEditorPage />)} />
+          <Route path="/templates/:id/edit" element={protectedPage('templates.manage', <TemplateEditorPage />)} />
+          <Route path="/departments" element={protectedPage('departments.read', <DepartmentsPage />)} />
+          <Route path="/departments/:id" element={protectedPage('departments.read', <DepartmentDetailPage />)} />
+          <Route path="/workflows" element={protectedPage('workflows.read', <WorkflowsPage />)} />
+          <Route path="/workflows/:id/designer" element={protectedPage('workflows.manage', <WorkflowDesignerPage />)} />
+          <Route path="/users" element={protectedPage('users.directory.read', <UsersPage />)} />
+          <Route path="/users/roles" element={protectedPage('roles.read', <RolesPermissionsPage />)} />
           <Route path="/users/:id" element={<UserProfilePage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/archive" element={<ArchivePage />} />
-          <Route path="/audit" element={<AuditLogPage />} />
-          <Route path="/notifications" element={<NotificationsPage />} />
-          <Route path="/messages" element={<MessagesPage />} />
-          <Route path="/workforce" element={<WorkforcePage />} />
-          <Route path="/workforce/:id" element={<WorkforceRequestPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/reports" element={protectedPage('reports.read', <ReportsPage />)} />
+          <Route path="/archive" element={protectedPage('documents.archive', <ArchivePage />)} />
+          <Route path="/audit" element={protectedPage('audit.read', <AuditLogPage />)} />
+          <Route path="/notifications" element={protectedPage('notifications.read', <NotificationsPage />)} />
+          <Route path="/messages" element={protectedPage('messages.use', <MessagesPage />)} />
+          <Route path="/workforce" element={protectedPage('workforce.read', <WorkforcePage />)} />
+          <Route path="/workforce/:id" element={protectedPage('workforce.read', <WorkforceRequestPage />)} />
+          <Route path="/settings" element={protectedPage('settings.read', <SettingsPage />)} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
-      </Router>
-    </TenantGuard>
+        </Router>
+      </TenantGuard>
+    </AppDialogProvider>
   );
 }

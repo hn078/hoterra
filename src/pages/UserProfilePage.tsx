@@ -7,24 +7,25 @@ import {
   Mail,
   Building2,
   Shield,
-  GitBranch,
   Calendar,
 } from 'lucide-react';
 import { Header, DepartmentBadge } from '@/components/layout/Sidebar';
 import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 import { DashStatCard } from '@/components/ui/DashStatCard';
 import { PageTabs } from '@/components/ui/PageTabs';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { useProtectedAssetUrl } from '@/hooks/useProtectedAssetUrl';
+import { hasCapability } from '@/modules/access-control';
 import type { AuditLog, Document, User } from '@/types';
 import { ROLE_LABELS } from '@/types';
 import { mapAuditAction, ROLE_DEFINITIONS } from '@/data/mock';
 import { formatDate, formatDateTime, timeAgo } from '@/lib/utils';
 
 type UserDetail = User & {
-  signatureImage?: string | null;
+  hasSignature?: boolean;
   createdAt: string;
   counts: { documents: number; signatures: number; auditLogs: number };
   recentActivity: AuditLog[];
@@ -53,12 +54,21 @@ function roleToDefinitionId(role: User['role']): string {
 export function UserProfilePage() {
   const { id } = useParams<{ id: string }>();
   const currentUser = useAuthStore((s) => s.user);
+  const dialog = useAppDialog();
   const [user, setUser] = useState<UserDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [uploadingSignature, setUploadingSignature] = useState(false);
-  const signatureUrl = useProtectedAssetUrl(user?.signatureImage && id ? `/files/users/${id}/signature` : null);
-
-  const canEditSignature = Boolean(id && currentUser && (currentUser.id === id || currentUser.role === 'SYSTEM_ADMINISTRATOR' || currentUser.role === 'GENERAL_MANAGER'));
+  const canEditSignature = Boolean(id && currentUser?.id === id);
+  const canReadDocuments = hasCapability(currentUser, 'documents.read');
+  const canReadAudit = Boolean(id && (currentUser?.id === id || hasCapability(currentUser, 'audit.read')));
+  const canReadRoles = hasCapability(currentUser, 'roles.read');
+  const signatureUrl = useProtectedAssetUrl(user?.hasSignature && canEditSignature && id ? `/files/users/${id}/signature` : null);
+  const visibleTabs = TABS.filter((tab) =>
+    (tab.id !== 'roles' || canReadRoles) &&
+    (tab.id !== 'activity' || canReadAudit) &&
+    (tab.id !== 'documents' || canReadDocuments)
+  );
 
   const handleSignatureUpload = async (file: File) => {
     if (!id || !canEditSignature) return;
@@ -70,13 +80,13 @@ export function UserProfilePage() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const updated = await api.uploadUserSignature(id, file.name, data);
-      setUser((prev) => (prev ? { ...prev, signatureImage: updated.signatureImage } : prev));
+      await api.uploadUserSignature(id, file.name, data);
+      setUser((prev) => (prev ? { ...prev, hasSignature: true } : prev));
       if (currentUser?.id === id) {
-        useAuthStore.setState({ user: { ...currentUser, signatureImage: updated.signatureImage } });
+        useAuthStore.setState({ user: { ...currentUser, hasSignature: true } });
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to upload signature');
+      await dialog.alert(err instanceof Error ? err.message : 'Failed to upload signature', { title: 'Signature not uploaded' });
     } finally {
       setUploadingSignature(false);
     }
@@ -84,9 +94,30 @@ export function UserProfilePage() {
 
   useEffect(() => {
     if (id) {
-      api.getUser(id).then(setUser).catch(console.error);
+      setLoadError(null);
+      api.getUser(id)
+        .then(setUser)
+        .catch((error) => setLoadError(error instanceof Error ? error.message : 'User profile is unavailable'));
     }
   }, [id]);
+
+  if (loadError) {
+    return (
+      <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
+        <Header title="User Profile" subtitle="Profile unavailable" />
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="card max-w-md p-6 text-center">
+            <Shield className="mx-auto h-8 w-8 text-gray-400" />
+            <h2 className="mt-3 font-semibold text-hoterra-navy">You cannot open this profile</h2>
+            <p className="mt-2 text-sm text-gray-500">The account may be outside your department scope or no longer available.</p>
+            {hasCapability(currentUser, 'users.directory.read') && (
+              <Link to="/users" className="btn-secondary mt-4 inline-flex">Back to Users</Link>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -96,7 +127,9 @@ export function UserProfilePage() {
     );
   }
 
-  const roleDef = ROLE_DEFINITIONS.find((r) => r.id === roleToDefinitionId(user.role));
+  const roleDef = user.customRole
+    ? undefined
+    : ROLE_DEFINITIONS.find((r) => r.id === roleToDefinitionId(user.role));
   const permissionModules = roleDef
     ? Object.entries(roleDef.permissions).filter(([, perms]) => perms.some(Boolean))
     : [];
@@ -105,28 +138,26 @@ export function UserProfilePage() {
     <div className="flex flex-1 flex-col overflow-hidden bg-hoterra-page">
       <Header
         title={`${user.firstName} ${user.lastName}`}
-        subtitle={ROLE_LABELS[user.role]}
+        subtitle={user.jobTitle || user.customRole?.name || ROLE_LABELS[user.role]}
       />
 
       <div className="border-b border-gray-200 bg-white px-6 pb-2 pt-2">
-        <Breadcrumbs
-          items={[
-            { label: 'Users & Roles', to: '/users' },
-            { label: `${user.firstName} ${user.lastName}` },
-          ]}
-        />
+        <Breadcrumbs items={[
+          ...(hasCapability(currentUser, 'users.directory.read') ? [{ label: 'Users & Roles', to: '/users' }] : []),
+          { label: `${user.firstName} ${user.lastName}` },
+        ]} />
       </div>
 
       <div className="page-stats page-stats--tabs">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <DashStatCard label="Documents Created" value={user.counts.documents} icon={FileText} iconColor="text-blue-600" iconBg="bg-blue-50" />
-          <DashStatCard label="Signatures" value={user.counts.signatures} icon={PenLine} iconColor="text-green-600" iconBg="bg-green-50" />
-          <DashStatCard label="Audit Events" value={user.counts.auditLogs} icon={Activity} iconColor="text-purple-600" iconBg="bg-purple-50" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {canReadDocuments && <DashStatCard label="Documents Created" value={user.counts.documents} icon={FileText} iconColor="text-blue-600" iconBg="bg-blue-50" />}
+          {canReadDocuments && <DashStatCard label="Signatures" value={user.counts.signatures} icon={PenLine} iconColor="text-green-600" iconBg="bg-green-50" />}
+          {canReadAudit && <DashStatCard label="Audit Events" value={user.counts.auditLogs} icon={Activity} iconColor="text-purple-600" iconBg="bg-purple-50" />}
           <DashStatCard label="Member Since" value={formatDate(user.createdAt)} icon={Calendar} iconColor="text-gray-600" iconBg="bg-gray-100" />
         </div>
       </div>
 
-      <PageTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
+      <PageTabs tabs={visibleTabs} active={activeTab} onChange={setActiveTab} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-hoterra-page md:flex-row md:overflow-hidden">
         <aside className="card w-full shrink-0 overflow-y-auto rounded-none border-x-0 border-t-0 p-4 shadow-none md:w-72 md:border-r md:border-b-0 md:p-5">
@@ -135,7 +166,8 @@ export function UserProfilePage() {
             <h2 className="mt-3 text-lg font-bold text-hoterra-navy">
               {user.firstName} {user.lastName}
             </h2>
-            <p className="text-sm text-gray-500">{ROLE_LABELS[user.role]}</p>
+            {user.jobTitle && <p className="text-sm font-medium text-gray-600">{user.jobTitle}</p>}
+            <p className="text-xs text-gray-500">Access: {user.customRole?.name ?? ROLE_LABELS[user.role]}</p>
             {user.department && (
               <div className="mt-2">
                 <DepartmentBadge name={user.department.name} color={user.department.color} />
@@ -148,16 +180,16 @@ export function UserProfilePage() {
             {user.department && (
               <InfoItem icon={Building2} label="Department" value={user.department.name} />
             )}
-            <InfoItem icon={Shield} label="Role" value={ROLE_LABELS[user.role]} />
+            <InfoItem icon={Shield} label="Role" value={user.customRole?.name ?? ROLE_LABELS[user.role]} />
             <InfoItem icon={Calendar} label="Joined" value={formatDate(user.createdAt)} />
           </dl>
 
-          <div className="mt-6 border-t border-gray-100 pt-5">
+          {canEditSignature && <div className="mt-6 border-t border-gray-100 pt-5">
             <h3 className="mb-2 text-sm font-semibold text-hoterra-navy">Signing Signature</h3>
             <p className="mb-3 text-xs text-gray-500">
               Upload a PNG or JPG image of your handwritten signature. It will be placed on documents when you sign.
             </p>
-            {user.signatureImage && signatureUrl ? (
+            {user.hasSignature && signatureUrl ? (
               <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3">
                 <img
                   src={signatureUrl}
@@ -170,9 +202,8 @@ export function UserProfilePage() {
                 No signature uploaded yet
               </p>
             )}
-            {canEditSignature && (
-              <label className="btn-secondary w-full cursor-pointer py-2 text-xs">
-                {uploadingSignature ? 'Uploading...' : user.signatureImage ? 'Replace Signature' : 'Upload Signature'}
+            <label className="btn-secondary w-full cursor-pointer py-2 text-xs">
+                {uploadingSignature ? 'Uploading...' : user.hasSignature ? 'Replace Signature' : 'Upload Signature'}
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
@@ -185,8 +216,7 @@ export function UserProfilePage() {
                   }}
                 />
               </label>
-            )}
-          </div>
+          </div>}
         </aside>
 
         <div className="flex-1 overflow-y-auto bg-hoterra-page p-6">
@@ -196,14 +226,23 @@ export function UserProfilePage() {
                 <dl className="space-y-2 text-sm">
                   <Row label="Full Name" value={`${user.firstName} ${user.lastName}`} />
                   <Row label="Email" value={user.email} />
-                  <Row label="Role" value={ROLE_LABELS[user.role]} />
+                  <Row label="Role" value={user.customRole?.name ?? ROLE_LABELS[user.role]} />
                   <Row label="Department" value={user.department?.name ?? '—'} />
                   <Row label="Account Created" value={formatDateTime(user.createdAt)} />
                 </dl>
               </ProfileWidget>
 
-              <ProfileWidget title="Permissions Summary" icon={Shield}>
-                {roleDef ? (
+              {canReadRoles && <ProfileWidget title="Permissions Summary" icon={Shield}>
+                {user.customRole ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600">
+                      This account uses the custom role <strong>{user.customRole.name}</strong>.
+                    </p>
+                    <Link to="/users/roles" className="text-xs text-hoterra-steel hover:underline">
+                      View its effective permissions →
+                    </Link>
+                  </div>
+                ) : roleDef ? (
                   <div className="space-y-2">
                     <p className="text-sm text-gray-600">{roleDef.description}</p>
                     <div className="flex flex-wrap gap-1.5">
@@ -226,9 +265,9 @@ export function UserProfilePage() {
                 ) : (
                   <p className="text-sm text-gray-400">No role definition found</p>
                 )}
-              </ProfileWidget>
+              </ProfileWidget>}
 
-              <ProfileWidget title="Recent Activity" icon={Activity}>
+              {canReadAudit && <ProfileWidget title="Recent Activity" icon={Activity}>
                 <div className="space-y-3">
                   {user.recentActivity.slice(0, 5).map((log) => {
                     const mapped = mapAuditAction(log.action);
@@ -248,31 +287,17 @@ export function UserProfilePage() {
                     <p className="text-sm text-gray-400">No recent activity</p>
                   )}
                 </div>
-              </ProfileWidget>
-
-              <ProfileWidget title="Assigned Workflows" icon={GitBranch}>
-                <div className="space-y-2">
-                  {['Standard Document Approval', 'SOP Review Process'].map((name) => (
-                    <div
-                      key={name}
-                      className="flex items-center justify-between rounded-lg border border-gray-100 p-3"
-                    >
-                      <p className="text-sm font-medium text-gray-800">{name}</p>
-                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
-                        Active
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </ProfileWidget>
+              </ProfileWidget>}
             </div>
           )}
 
-          {activeTab === 'roles' && roleDef && (
+          {activeTab === 'roles' && canReadRoles && (
             <div className="rounded-xl border border-gray-200 bg-white p-6">
-              <h3 className="mb-1 font-semibold text-hoterra-navy">{roleDef.name}</h3>
-              <p className="mb-4 text-sm text-gray-600">{roleDef.description}</p>
-              <div className="flex flex-wrap gap-2">
+              <h3 className="mb-1 font-semibold text-hoterra-navy">{user.customRole?.name ?? roleDef?.name}</h3>
+              <p className="mb-4 text-sm text-gray-600">
+                {user.customRole ? 'Custom role permissions are managed in Users & Roles.' : roleDef?.description}
+              </p>
+              {roleDef && <div className="flex flex-wrap gap-2">
                 {Object.entries(roleDef.permissions).map(([module, perms]) => {
                   const active = perms.some(Boolean);
                   if (!active) return null;
@@ -285,11 +310,12 @@ export function UserProfilePage() {
                     </span>
                   );
                 })}
-              </div>
+              </div>}
+              {user.customRole && <Link to="/users/roles" className="text-sm text-hoterra-steel hover:underline">View effective permissions →</Link>}
             </div>
           )}
 
-          {activeTab === 'activity' && (
+          {activeTab === 'activity' && canReadAudit && (
             <div className="rounded-xl border border-gray-200 bg-white">
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
@@ -319,7 +345,7 @@ export function UserProfilePage() {
             </div>
           )}
 
-          {activeTab === 'documents' && (
+          {activeTab === 'documents' && canReadDocuments && (
             <div className="rounded-xl border border-gray-200 bg-white">
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500">
