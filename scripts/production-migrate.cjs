@@ -36,6 +36,36 @@ function runtimeRoleIdentifier() {
   return { roleName, quoted: `"${roleName}"` };
 }
 
+async function provisionRuntimeRole() {
+  const role = runtimeRoleIdentifier();
+  const password = process.env.APP_DATABASE_PASSWORD;
+  if (!role) return;
+  if (!password || !/^[A-Za-z0-9_-]{32,128}$/.test(password)) {
+    throw new Error('APP_DATABASE_PASSWORD must be a 32-128 character URL-safe secret');
+  }
+
+  const db = new PrismaClient({ datasources: { db: { url: databaseUrlWithSystemContext() } } });
+  try {
+    const exists = await db.$queryRawUnsafe('SELECT 1 FROM pg_roles WHERE rolname = $1', role.roleName);
+    if (!exists.length) {
+      await db.$executeRawUnsafe(`CREATE ROLE ${role.quoted} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`);
+    } else {
+      await db.$executeRawUnsafe(`ALTER ROLE ${role.quoted} WITH LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`);
+    }
+    await db.$executeRawUnsafe(`GRANT CONNECT ON DATABASE ${JSON.stringify(new URL(databaseUrlWithSystemContext()).pathname.slice(1))} TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${role.quoted}`);
+    await db.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO ${role.quoted}`);
+    console.log(`[database] provisioned restricted runtime role ${role.roleName}`);
+  } finally {
+    await db.$disconnect();
+  }
+}
+
 function runPrisma(args) {
   const prismaCli = require.resolve('prisma/build/index.js');
   const result = spawnSync(process.execPath, [prismaCli, ...args], {
@@ -130,6 +160,7 @@ async function main() {
   }
 
   runPrisma(['migrate', 'deploy']);
+  await provisionRuntimeRole();
   await enforceRuntimeAppendOnlyPrivileges();
 }
 
