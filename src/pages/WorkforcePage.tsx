@@ -1112,7 +1112,7 @@ export function WorkforcePage() {
             className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
           >
             <h2 className="mb-1 text-lg font-bold text-hoterra-navy">New casual staff request</h2>
-            <p className="mb-5 text-sm text-gray-500">Fill the request and submit for approval</p>
+            <p className="mb-5 text-sm text-gray-500">Prepare the request as a draft. Approval starts only after the department HoD approves and sends it.</p>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Hotel">
@@ -1216,7 +1216,7 @@ export function WorkforcePage() {
                 Cancel
               </button>
               <button type="submit" disabled={creating} className="btn-primary disabled:opacity-50">
-                {creating ? 'Submitting…' : 'Submit request'}
+                {creating ? 'Saving…' : 'Save draft'}
               </button>
             </div>
           </form>

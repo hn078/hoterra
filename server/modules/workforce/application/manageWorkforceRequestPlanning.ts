@@ -263,7 +263,6 @@ export async function createWorkforceRequestInTransaction(
   const estimatedCost = roundWorkforceMoney(items.reduce((total, item) => total + item.estimatedCost, 0));
   const needsExtraApproval = urgent || await budgetExceeded(transaction, departmentId, workDate, estimatedCost);
   const steps = await approvalSteps(transaction, departmentId);
-  const initialStepIndex = initialWorkforceApprovalStepIndex(steps, actor, departmentId);
   const code = await nextRequestCode(transaction);
   const first = items[0];
   const created = await transaction.workforceRequest.create({
@@ -280,8 +279,8 @@ export async function createWorkforceRequestInTransaction(
       comment,
       vendorMode: WorkforceVendorMode.DIRECT,
       broadcastVendorIds: '[]',
-      status: needsExtraApproval ? WorkforceRequestStatus.AWAITING_EXTRA_APPROVAL : WorkforceRequestStatus.PENDING,
-      currentStepIndex: initialStepIndex,
+      status: WorkforceRequestStatus.DRAFT,
+      currentStepIndex: 0,
       approvalSteps: JSON.stringify(steps),
       needsExtraApproval,
       isUrgentOverride: urgent,
@@ -291,19 +290,50 @@ export async function createWorkforceRequestInTransaction(
     },
     include: { items: true },
   });
-  const details = options.eventDetails || (initialStepIndex > 0
-    ? 'Submitted by department HoD; departmental approval completed on submission'
-    : needsExtraApproval ? 'Created with extra approval (budget or urgency)' : 'Request created');
+  const details = options.eventDetails || 'Request draft created';
   await transaction.workforceRequestEvent.create({ data: { requestId: created.id, action: 'CREATED', details, userId: actor.id, userName: actorName(actor) } });
   await transaction.auditLog.create({ data: { userId: actor.id, userName: actorName(actor), action: AuditAction.CREATE, entityType: 'WorkforceRequest', entityId: created.id, details: `Created casual workforce request ${code}${options.eventDetails ? ` — ${options.eventDetails}` : ''}`, outcome: 'SUCCESS', reason: needsExtraApproval ? 'Request created with budget or urgency escalation' : 'Casual workforce need submitted for approval', afterState: serializeWorkforceRequestAuditState(created) } });
-  await queueRequestApprovalNotifications(transaction, {
-    id: created.id,
-    code,
-    departmentId,
-    approvalSteps: JSON.stringify(steps),
-    currentStepIndex: initialStepIndex,
-  }, options.notification);
-  return { requestId: created.id, code, departmentId, approvalSteps: JSON.stringify(steps), currentStepIndex: initialStepIndex };
+  return { requestId: created.id, code, departmentId, approvalSteps: JSON.stringify(steps), currentStepIndex: 0 };
+}
+
+export async function submitDraftWorkforceRequest(
+  database: WorkforceDatabase,
+  actor: AuthUser,
+  requestId: string,
+  notificationOptions: WorkforceNotificationOptions,
+) {
+  return database.$transaction(async (transaction) => {
+    await transaction.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`workforce-request:${requestId}`}))`);
+    const request = await transaction.workforceRequest.findUnique({ where: { id: requestId }, include: { items: true } });
+    if (!request) throw new WorkforceRequestPlanningError('NOT_FOUND');
+    if (request.status !== WorkforceRequestStatus.DRAFT) throw new WorkforceRequestPlanningError('INVALID_STATE');
+    const steps = parseApprovalSteps(request.approvalSteps);
+    const nextStepIndex = initialWorkforceApprovalStepIndex(steps, actor, request.departmentId);
+    if (nextStepIndex !== 1) throw new WorkforceRequestPlanningError('FORBIDDEN');
+    const nextStatus = request.needsExtraApproval
+      ? WorkforceRequestStatus.AWAITING_EXTRA_APPROVAL
+      : WorkforceRequestStatus.PENDING;
+    const update = await transaction.workforceRequest.updateMany({
+      where: { id: requestId, status: WorkforceRequestStatus.DRAFT, currentStepIndex: 0 },
+      data: { status: nextStatus, currentStepIndex: nextStepIndex },
+    });
+    if (update.count !== 1) throw new WorkforceRequestPlanningError('CONFLICT');
+    const submitted = await transaction.workforceRequest.findUniqueOrThrow({ where: { id: requestId }, include: { items: true } });
+    await transaction.workforceRequestEvent.create({
+      data: { requestId, action: 'SUBMITTED_TO_HR', details: 'Department HoD approved and sent the request to Human Resources HoD', userId: actor.id, userName: actorName(actor) },
+    });
+    await transaction.auditLog.create({
+      data: { userId: actor.id, userName: actorName(actor), action: AuditAction.SUBMIT, entityType: 'WorkforceRequest', entityId: requestId, details: `Approved and submitted ${request.code} to Human Resources HoD`, outcome: 'SUCCESS', reason: 'Owning department HoD explicitly started the approval workflow', beforeState: serializeWorkforceRequestAuditState(request), afterState: serializeWorkforceRequestAuditState(submitted) },
+    });
+    await queueRequestApprovalNotifications(transaction, {
+      id: requestId,
+      code: request.code,
+      departmentId: request.departmentId,
+      approvalSteps: request.approvalSteps,
+      currentStepIndex: nextStepIndex,
+    }, notificationOptions);
+    return { requestId };
+  });
 }
 
 export async function createWorkforceRequest(

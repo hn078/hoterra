@@ -138,6 +138,7 @@ export {
 } from './application/reconcileWorkforceLifecycle';
 export {
   createWorkforceRequest,
+  submitDraftWorkforceRequest,
   reviseAndResubmitWorkforceRequest,
   WorkforceRequestPlanningError,
   type WorkforceRequestPlanningErrorCode,

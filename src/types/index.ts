@@ -502,6 +502,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export type WorkforceRequestStatus =
+  | 'DRAFT'
   | 'PENDING'
   | 'AWAITING_EXTRA_APPROVAL'
   | 'APPROVED'
@@ -897,6 +898,7 @@ export interface WorkforceReportAggregate {
 }
 
 export const WORKFORCE_STATUS_LABELS: Record<WorkforceRequestStatus, string> = {
+  DRAFT: 'Draft',
   PENDING: 'Pending',
   AWAITING_EXTRA_APPROVAL: 'Extra Approval',
   APPROVED: 'Approved',
@@ -915,6 +917,7 @@ export const WORKFORCE_STATUS_LABELS: Record<WorkforceRequestStatus, string> = {
 };
 
 export const WORKFORCE_STATUS_COLORS: Record<WorkforceRequestStatus, string> = {
+  DRAFT: 'bg-slate-100 text-slate-700 border-slate-300',
   PENDING: 'bg-orange-100 text-orange-700 border-orange-300',
   AWAITING_EXTRA_APPROVAL: 'bg-amber-100 text-amber-800 border-amber-300',
   APPROVED: 'bg-blue-100 text-blue-700 border-blue-300',

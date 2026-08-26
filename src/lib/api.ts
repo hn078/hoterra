@@ -903,6 +903,12 @@ class ApiClient {
     });
   }
 
+  submitDraftWorkforceRequest(id: string) {
+    return this.request<import('@/types').WorkforceRequest>(`/workforce/requests/${id}/submit`, {
+      method: 'POST',
+    });
+  }
+
   approveWorkforceRequest(id: string) {
     return this.request<import('@/types').WorkforceRequest>(`/workforce/requests/${id}/approve`, {
       method: 'POST',

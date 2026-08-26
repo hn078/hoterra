@@ -119,6 +119,7 @@ export function WorkforceRequestPage() {
     ['FINANCE_DIRECTOR', 'GENERAL_MANAGER', 'SYSTEM_ADMINISTRATOR'].includes(user.role);
   const isPrivileged = !!user && ['GENERAL_MANAGER', 'SYSTEM_ADMINISTRATOR'].includes(user.role);
   const isDepartmentHod = !!user && user.role === 'HOD' && user.department?.id === request.departmentId;
+  const canSubmitDraft = request.status === 'DRAFT' && isDepartmentHod;
   const isProcurementHead = !!user && user.role === 'HOD' && user.department?.code === 'PR';
   const assignedVendors = Array.from(new Map(
     request.items
@@ -240,6 +241,12 @@ export function WorkforceRequestPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {canSubmitDraft && (
+              <button disabled={busy} onClick={() => run(() => api.submitDraftWorkforceRequest(request.id))} className="btn-primary disabled:opacity-50">
+                <Check className="h-4 w-4" />
+                Approve & send
+              </button>
+            )}
             {request.canApprove && (
               <>
                 <button

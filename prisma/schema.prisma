@@ -99,6 +99,7 @@ enum WorkflowStatus {
 }
 
 enum WorkforceRequestStatus {
+  DRAFT
   PENDING
   AWAITING_EXTRA_APPROVAL
   APPROVED

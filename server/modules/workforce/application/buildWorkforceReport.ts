@@ -5,6 +5,7 @@ import { calculateWorkforceLineCost, inclusiveWorkforceDays } from '../domain/wo
 type WorkforceDatabase = typeof DatabaseModule.prisma;
 
 const INACTIVE_STATUSES = new Set<WorkforceRequestStatus>([
+  WorkforceRequestStatus.DRAFT,
   WorkforceRequestStatus.REJECTED,
   WorkforceRequestStatus.CANCELLED,
   WorkforceRequestStatus.VENDOR_DECLINED,

@@ -8,6 +8,7 @@ import {
   getWorkforceRequestDetail,
   listWorkforceRequests,
   reviseAndResubmitWorkforceRequest,
+  submitDraftWorkforceRequest,
   WorkforceRequestPlanningError,
   WorkforceRequestReadError,
 } from '../modules/workforce';
@@ -52,6 +53,20 @@ router.post('/requests', authMiddleware, requireCapability('workforce.request.cr
     if (error.code === 'NO_ELIGIBLE_RATE') return res.status(400).json({ error: `No eligible approved vendor offer exists for ${error.detail || 'a selected service'}` });
     if (error.code === 'HR_REQUIRED') return res.status(409).json({ error: 'Human Resources department must be configured before requests can be submitted' });
     return res.status(400).json({ error: 'Invalid workforce request data' });
+  }
+}));
+
+router.post('/requests/:id/submit', authMiddleware, requireCapability('workforce.request.create'), asyncHandler(async (req, res) => {
+  const id = routeParam(req.params.id);
+  try {
+    await submitDraftWorkforceRequest(prisma, req.user!, id, notificationOptions());
+    res.json(await requestDetailForViewer(req, id));
+  } catch (error) {
+    if (!(error instanceof WorkforceRequestPlanningError)) throw error;
+    if (error.code === 'NOT_FOUND') return res.status(404).json({ error: 'Request not found' });
+    if (error.code === 'FORBIDDEN') return res.status(403).json({ error: 'Only the owning department HoD can approve and send this draft' });
+    if (error.code === 'INVALID_STATE') return res.status(409).json({ error: 'Only a draft request can be submitted' });
+    return res.status(409).json({ error: 'Request state changed; reload and try again' });
   }
 }));
 
