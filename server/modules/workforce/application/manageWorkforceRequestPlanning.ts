@@ -222,6 +222,19 @@ function validatePeriod(start: Date, end: Date) {
   if (end < start || inclusiveWorkforceDays(start, end) > 366) throw new WorkforceRequestPlanningError('INVALID_PERIOD');
 }
 
+export function initialWorkforceApprovalStepIndex(
+  steps: ApprovalStep[],
+  actor: Pick<AuthUser, 'id' | 'role' | 'departmentId'>,
+  departmentId: string,
+) {
+  const first = steps[0];
+  const submittedByOwningHod = actor.role === Role.HOD && actor.departmentId === departmentId;
+  const firstIsOwningHod = first?.role === Role.HOD
+    && (!first.approverDepartmentId || first.approverDepartmentId === departmentId)
+    && (!first.approverUserId || first.approverUserId === actor.id);
+  return submittedByOwningHod && firstIsOwningHod && steps.length > 1 ? 1 : 0;
+}
+
 export async function createWorkforceRequestInTransaction(
   transaction: Transaction,
   actor: AuthUser,
@@ -250,6 +263,7 @@ export async function createWorkforceRequestInTransaction(
   const estimatedCost = roundWorkforceMoney(items.reduce((total, item) => total + item.estimatedCost, 0));
   const needsExtraApproval = urgent || await budgetExceeded(transaction, departmentId, workDate, estimatedCost);
   const steps = await approvalSteps(transaction, departmentId);
+  const initialStepIndex = initialWorkforceApprovalStepIndex(steps, actor, departmentId);
   const code = await nextRequestCode(transaction);
   const first = items[0];
   const created = await transaction.workforceRequest.create({
@@ -267,7 +281,7 @@ export async function createWorkforceRequestInTransaction(
       vendorMode: WorkforceVendorMode.DIRECT,
       broadcastVendorIds: '[]',
       status: needsExtraApproval ? WorkforceRequestStatus.AWAITING_EXTRA_APPROVAL : WorkforceRequestStatus.PENDING,
-      currentStepIndex: 0,
+      currentStepIndex: initialStepIndex,
       approvalSteps: JSON.stringify(steps),
       needsExtraApproval,
       isUrgentOverride: urgent,
@@ -277,7 +291,9 @@ export async function createWorkforceRequestInTransaction(
     },
     include: { items: true },
   });
-  const details = options.eventDetails || (needsExtraApproval ? 'Created with extra approval (budget or urgency)' : 'Request created');
+  const details = options.eventDetails || (initialStepIndex > 0
+    ? 'Submitted by department HoD; departmental approval completed on submission'
+    : needsExtraApproval ? 'Created with extra approval (budget or urgency)' : 'Request created');
   await transaction.workforceRequestEvent.create({ data: { requestId: created.id, action: 'CREATED', details, userId: actor.id, userName: actorName(actor) } });
   await transaction.auditLog.create({ data: { userId: actor.id, userName: actorName(actor), action: AuditAction.CREATE, entityType: 'WorkforceRequest', entityId: created.id, details: `Created casual workforce request ${code}${options.eventDetails ? ` — ${options.eventDetails}` : ''}`, outcome: 'SUCCESS', reason: needsExtraApproval ? 'Request created with budget or urgency escalation' : 'Casual workforce need submitted for approval', afterState: serializeWorkforceRequestAuditState(created) } });
   await queueRequestApprovalNotifications(transaction, {
@@ -285,9 +301,9 @@ export async function createWorkforceRequestInTransaction(
     code,
     departmentId,
     approvalSteps: JSON.stringify(steps),
-    currentStepIndex: 0,
+    currentStepIndex: initialStepIndex,
   }, options.notification);
-  return { requestId: created.id, code, departmentId, approvalSteps: JSON.stringify(steps), currentStepIndex: 0 };
+  return { requestId: created.id, code, departmentId, approvalSteps: JSON.stringify(steps), currentStepIndex: initialStepIndex };
 }
 
 export async function createWorkforceRequest(
@@ -331,6 +347,7 @@ export async function reviseAndResubmitWorkforceRequest(
     const estimatedCost = roundWorkforceMoney(items.reduce((total, item) => total + item.estimatedCost, 0));
     const needsExtraApproval = request.isUrgentOverride || await budgetExceeded(transaction, request.departmentId, workDate, estimatedCost, requestId);
     const steps = await approvalSteps(transaction, request.departmentId);
+    const initialStepIndex = initialWorkforceApprovalStepIndex(steps, actor, request.departmentId);
     const first = items[0];
     const comment = input.comment === undefined ? request.comment : String(input.comment || '').trim().slice(0, 2000) || null;
     const revisionComment = String(input.revisionComment || 'Request revised and resubmitted').trim().slice(0, 2000);
@@ -345,7 +362,7 @@ export async function reviseAndResubmitWorkforceRequest(
         quantity: items.reduce((total, item) => total + item.quantity, 0),
         comment,
         status: needsExtraApproval ? WorkforceRequestStatus.AWAITING_EXTRA_APPROVAL : WorkforceRequestStatus.PENDING,
-        currentStepIndex: 0,
+        currentStepIndex: initialStepIndex,
         approvalSteps: JSON.stringify(steps),
         needsExtraApproval,
         estimatedCost,
@@ -377,7 +394,7 @@ export async function reviseAndResubmitWorkforceRequest(
       code: request.code,
       departmentId: request.departmentId,
       approvalSteps: JSON.stringify(steps),
-      currentStepIndex: 0,
+      currentStepIndex: initialStepIndex,
     }, notificationOptions);
     return { requestId };
   });
