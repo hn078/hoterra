@@ -3,6 +3,7 @@ import type * as DatabaseModule from '../../../db';
 import type { AuthUser } from '../../../middleware/auth';
 import { canManageProcurementWorkforce } from './procurementAccess';
 import { serializeWorkforceVendorCorrectionReviewAuditState } from './workforceAuditState';
+import { calculateWorkforceLineCost } from '../domain/workforcePricing';
 
 type WorkforceDatabase = typeof DatabaseModule.prisma;
 
@@ -24,28 +25,6 @@ export class DraftVendorCorrectionError extends Error {
     super(code);
     this.name = 'DraftVendorCorrectionError';
   }
-}
-
-function roundCurrency(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function inclusiveDays(start: Date, end: Date) {
-  return Math.max(1, Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1);
-}
-
-function correctionCost(
-  quantity: number,
-  price: number,
-  unit: WorkforceRateUnit,
-  start: Date,
-  end: Date,
-  hoursPerDay: number,
-) {
-  return roundCurrency(
-    quantity * price * inclusiveDays(start, end) *
-    (unit === WorkforceRateUnit.HOURLY ? hoursPerDay : 1),
-  );
 }
 
 /** Creates or replaces one line in Procurement's vendor-correction draft. */
@@ -126,14 +105,14 @@ export async function draftVendorCorrection(
     const settings = await transaction.workforceSettings.findFirst({
       select: { estimatedHoursPerShift: true },
     });
-    const newCost = correctionCost(
-      item.quantity,
-      rate.price,
-      rate.unit,
-      request.workDate,
-      request.endDate,
-      item.hours || settings?.estimatedHoursPerShift || 8,
-    );
+    const newCost = calculateWorkforceLineCost({
+      quantity: item.quantity,
+      unitRate: rate.price,
+      rateUnit: rate.unit,
+      start: request.workDate,
+      end: request.endDate,
+      hoursPerDay: item.hours || settings?.estimatedHoursPerShift || 8,
+    });
     const oldVendorName = item.vendor?.name || item.vendorRate?.vendor.name || 'Unassigned vendor';
     const draft = request.vendorCorrectionReviews.find((review) => review.status === 'DRAFT')
       ?? await transaction.workforceVendorCorrectionReview.create({

@@ -716,7 +716,7 @@ test('workforce request creation and revision are locked transactional planning 
   assert.match(planning, /Number\(hours\) > 24/);
   assert.match(planning, /approvalStatus: VendorApprovalStatus\.APPROVED/);
   assert.match(planning, /Human Resources — Head of Department/);
-  assert.match(planning, /endDate.*366|inclusiveDays\(start, end\) > 366/);
+  assert.match(planning, /endDate.*366|inclusiveWorkforceDays\(start, end\) > 366/);
   assert.match(planning, /status: 'EXPIRED'/);
   assert.match(planning, /workforceVendorCorrectionReview\.deleteMany/);
   assert.match(planning, /_count: \{ select: \{ invoices: true \} \}/);

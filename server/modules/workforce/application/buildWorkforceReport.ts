@@ -1,5 +1,6 @@
 import { WorkforceRateUnit, WorkforceRequestStatus } from '@prisma/client';
 import type * as DatabaseModule from '../../../db';
+import { calculateWorkforceLineCost, inclusiveWorkforceDays } from '../domain/workforcePricing';
 
 type WorkforceDatabase = typeof DatabaseModule.prisma;
 
@@ -26,12 +27,6 @@ const VENDOR_DETAILS_VISIBLE_STATUSES = new Set<WorkforceRequestStatus>([
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const roundHours = (value: number) => Math.round((value + Number.EPSILON) * 10) / 10;
-
-function inclusiveDays(start: Date, end: Date) {
-  const startUtc = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-  const endUtc = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-  return Math.max(1, Math.floor((endUtc - startUtc) / 86_400_000) + 1);
-}
 
 function estimatedItemHours(
   unit: WorkforceRateUnit,
@@ -169,7 +164,7 @@ export async function buildWorkforceReport(
   let multiVendorRequests = 0;
 
   for (const request of active) {
-    const days = inclusiveDays(request.workDate, request.endDate);
+    const days = inclusiveWorkforceDays(request.workDate, request.endDate);
     const sourceItems = request.items.length
       ? request.items
       : [
@@ -219,9 +214,16 @@ export async function buildWorkforceReport(
       const estimatedCost =
         item.estimatedCost ??
         (item.unitRate != null
-          ? item.rateUnit === WorkforceRateUnit.HOURLY
-            ? item.unitRate * itemHours[index]
-            : item.unitRate * item.quantity * days
+          ? calculateWorkforceLineCost({
+              quantity: item.quantity,
+              unitRate: item.unitRate,
+              rateUnit: item.rateUnit,
+              start: request.workDate,
+              end: request.endDate,
+              hoursPerDay: item.rateUnit === WorkforceRateUnit.HOURLY
+                ? (item.hours || defaultHours)
+                : null,
+            })
           : 0);
       const committedCost = estimatedCost * actualCostFactor;
       const hours = itemHours[index] * actualHoursFactor;

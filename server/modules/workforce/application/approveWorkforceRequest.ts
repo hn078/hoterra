@@ -7,6 +7,7 @@ import {
   type WorkforceNotificationOptions,
 } from './workforceNotificationOutbox';
 import { serializeWorkforceRequestAuditState } from './workforceAuditState';
+import { calculateWorkforceLineCost, roundWorkforceMoney } from '../domain/workforcePricing';
 
 type WorkforceDatabase = typeof DatabaseModule.prisma;
 interface ApprovalStep { label: string }
@@ -31,12 +32,6 @@ export class ApproveWorkforceRequestError extends Error {
 function parseSteps(value: string): ApprovalStep[] {
   try { const parsed = JSON.parse(value) as ApprovalStep[]; return Array.isArray(parsed) ? parsed : []; }
   catch { return []; }
-}
-
-function roundCurrency(value: number) { return Math.round(value * 100) / 100; }
-function inclusiveDays(start: Date, end: Date) { return Math.max(1, Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1); }
-function catalogCost(quantity: number, price: number, unit: WorkforceRateUnit, start: Date, end: Date, hours: number) {
-  return roundCurrency(quantity * price * inclusiveDays(start, end) * (unit === WorkforceRateUnit.HOURLY ? hours : 1));
 }
 
 /** Advances one request approval step or performs final lowest-offer selection atomically. */
@@ -138,7 +133,7 @@ export async function approveWorkforceRequest(
         rateId: rate.id,
         price: rate.price,
         currency: rate.currency,
-        cost: catalogCost(item.quantity, rate.price, rate.unit, request.workDate, request.endDate, item.hours || settings?.estimatedHoursPerShift || 8),
+        cost: calculateWorkforceLineCost({ quantity: item.quantity, unitRate: rate.price, rateUnit: rate.unit, start: request.workDate, end: request.endDate, hoursPerDay: item.hours || settings?.estimatedHoursPerShift || 8 }),
       });
     }
     for (const selection of selectedItems) {
@@ -157,7 +152,7 @@ export async function approveWorkforceRequest(
         vendorRateId: first.rateId,
         unitRate: first.price,
         rateCurrency: first.currency,
-        estimatedCost: roundCurrency(selectedItems.reduce((sum, item) => sum + item.cost, 0)),
+        estimatedCost: roundWorkforceMoney(selectedItems.reduce((sum, item) => sum + item.cost, 0)),
       },
     });
     if (!update.count) throw new ApproveWorkforceRequestError('CONFLICT');

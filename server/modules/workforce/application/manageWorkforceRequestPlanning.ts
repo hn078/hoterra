@@ -15,6 +15,7 @@ import {
   type WorkforceNotificationOptions,
 } from './workforceNotificationOutbox';
 import { serializeWorkforceRequestAuditState } from './workforceAuditState';
+import { calculateWorkforceLineCost, inclusiveWorkforceDays, roundWorkforceMoney } from '../domain/workforcePricing';
 
 type WorkforceDatabase = typeof DatabaseModule.prisma;
 type Transaction = any;
@@ -59,18 +60,6 @@ export class WorkforceRequestPlanningError extends Error {
 
 function actorName(actor: AuthUser) {
   return `${actor.firstName} ${actor.lastName}`;
-}
-
-function currency(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function inclusiveDays(start: Date, end: Date) {
-  return Math.max(1, Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1);
-}
-
-function catalogCost(quantity: number, price: number, unit: WorkforceRateUnit, start: Date, end: Date, hoursPerDay: number) {
-  return currency(quantity * price * inclusiveDays(start, end) * (unit === WorkforceRateUnit.HOURLY ? hoursPerDay : 1));
 }
 
 function parseDate(value: unknown) {
@@ -189,7 +178,7 @@ async function normalizeItems(
       rateUnit,
       quantity,
       hours,
-      estimatedCost: catalogCost(quantity, lowestRate.price, rateUnit, start, end, hours || estimatedHoursPerShift),
+      estimatedCost: calculateWorkforceLineCost({ quantity, unitRate: lowestRate.price, rateUnit, start, end, hoursPerDay: hours || estimatedHoursPerShift }),
     });
   }
   return result;
@@ -230,7 +219,7 @@ async function nextRequestCode(transaction: Transaction) {
 }
 
 function validatePeriod(start: Date, end: Date) {
-  if (end < start || inclusiveDays(start, end) > 366) throw new WorkforceRequestPlanningError('INVALID_PERIOD');
+  if (end < start || inclusiveWorkforceDays(start, end) > 366) throw new WorkforceRequestPlanningError('INVALID_PERIOD');
 }
 
 export async function createWorkforceRequestInTransaction(
@@ -258,7 +247,7 @@ export async function createWorkforceRequestInTransaction(
   const leadHours = (workDate.getTime() - (options.now || new Date()).getTime()) / 3_600_000;
   if (leadHours < settings.minLeadHours && !urgent) throw new WorkforceRequestPlanningError('LEAD_TIME', String(settings.minLeadHours));
   const items = await normalizeItems(transaction, departmentId, rawItems, workDate, endDate, settings.estimatedHoursPerShift);
-  const estimatedCost = currency(items.reduce((total, item) => total + item.estimatedCost, 0));
+  const estimatedCost = roundWorkforceMoney(items.reduce((total, item) => total + item.estimatedCost, 0));
   const needsExtraApproval = urgent || await budgetExceeded(transaction, departmentId, workDate, estimatedCost);
   const steps = await approvalSteps(transaction, departmentId);
   const code = await nextRequestCode(transaction);
@@ -339,7 +328,7 @@ export async function reviseAndResubmitWorkforceRequest(
     if (leadHours < settings.minLeadHours && !request.isUrgentOverride) throw new WorkforceRequestPlanningError('LEAD_TIME', String(settings.minLeadHours));
     const rawItems = requestItems(input, request.items.map((item: any) => ({ positionId: item.positionId, rateUnit: item.rateUnit, quantity: item.quantity, hours: item.hours })));
     const items = await normalizeItems(transaction, request.departmentId, rawItems, workDate, endDate, settings.estimatedHoursPerShift);
-    const estimatedCost = currency(items.reduce((total, item) => total + item.estimatedCost, 0));
+    const estimatedCost = roundWorkforceMoney(items.reduce((total, item) => total + item.estimatedCost, 0));
     const needsExtraApproval = request.isUrgentOverride || await budgetExceeded(transaction, request.departmentId, workDate, estimatedCost, requestId);
     const steps = await approvalSteps(transaction, request.departmentId);
     const first = items[0];

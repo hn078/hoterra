@@ -76,6 +76,14 @@ const REPORT_MONTHS = [
 const money = (value: number) =>
   `${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} AZN`;
 
+const requestCalendarDays = (start: string, end: string) => {
+  if (!start || !end) return 0;
+  const startMs = Date.parse(`${start}T00:00:00.000Z`);
+  const endMs = Date.parse(`${end}T00:00:00.000Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return 0;
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+};
+
 const reportUnitLabel = (unit: string) =>
   ({ HOURLY: 'Hourly', DAILY_9: 'Daily 9 hours', DAILY_12: 'Daily 12 hours' })[unit] || unit;
 
@@ -217,6 +225,30 @@ export function WorkforcePage() {
     () => serviceOptions.filter((option) => option.rates[0]?.position.departmentId === form.departmentId),
     [serviceOptions, form.departmentId]
   );
+
+  const requestEstimate = useMemo(() => {
+    const days = requestCalendarDays(form.workDate, form.endDate);
+    const lines = form.items.map((item) => {
+      const option = departmentServiceOptions.find((candidate) =>
+        candidate.positionId === item.positionId && candidate.unit === item.rateUnit
+      );
+      const lowestRate = option?.rates.length
+        ? Math.min(...option.rates.map((rate) => rate.price))
+        : null;
+      const multiplier = item.rateUnit === 'HOURLY' ? Number(item.hours) : 1;
+      const amount = days && lowestRate != null && item.quantity > 0 && multiplier > 0
+        ? Math.round((lowestRate * item.quantity * days * multiplier + Number.EPSILON) * 100) / 100
+        : null;
+      return { lowestRate, amount };
+    });
+    return {
+      days,
+      lines,
+      total: lines.every((line) => line.amount != null)
+        ? Math.round((lines.reduce((sum, line) => sum + (line.amount || 0), 0) + Number.EPSILON) * 100) / 100
+        : null,
+    };
+  }, [departmentServiceOptions, form.endDate, form.items, form.workDate]);
 
   const catalogRows = useMemo(() => {
     if (!meta) return [];
@@ -1142,14 +1174,24 @@ export function WorkforcePage() {
                     <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
                       <Field label="Service / unit"><select required value={item.positionId ? `${item.positionId}:${item.rateUnit}` : ''} onChange={(e) => { const [positionId, rateUnit] = e.target.value.split(':'); updateRequestItem(index, { positionId, rateUnit: rateUnit as WorkforceRateUnit }); }} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"><option value="">Select…</option>{departmentServiceOptions.map((option) => <option key={`${option.positionId}:${option.unit}`} value={`${option.positionId}:${option.unit}`}>{option.positionName} · {unitLabel(option.unit)}</option>)}</select></Field>
                       <Field label="Quantity"><input required type="number" min={1} value={item.quantity} onChange={(e) => updateRequestItem(index, { quantity: Number(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></Field>
-                      {item.rateUnit === 'HOURLY' ? <Field label="Hours"><input required type="number" min="0.5" step="0.5" value={item.hours} onChange={(e) => updateRequestItem(index, { hours: Number(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></Field> : <div className="self-end rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">{item.rateUnit === 'DAILY_9' ? '9 hours' : '12 hours'}</div>}
+                      {item.rateUnit === 'HOURLY' ? <Field label="Hours per day"><input required type="number" min="0.5" max="24" step="0.5" value={item.hours} onChange={(e) => updateRequestItem(index, { hours: Number(e.target.value) })} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></Field> : <div className="self-end rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">{item.rateUnit === 'DAILY_9' ? '9-hour daily package' : '12-hour daily package'}</div>}
                       <button type="button" disabled={form.items.length === 1} onClick={() => removeRequestItem(index)} className="self-end rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-30"><X className="h-5 w-5" /></button>
                     </div>
-                    {!!prices.length && <div className="mt-2 text-xs text-blue-700">{prices.length} approved offers · {Math.min(...prices).toFixed(2)}–{Math.max(...prices).toFixed(2)} AZN. Lowest offer will be selected automatically after GM approval.</div>}
+                    {!!prices.length && <div className="mt-2 text-xs text-blue-700">{prices.length} approved offers · {Math.min(...prices).toFixed(2)}–{Math.max(...prices).toFixed(2)} AZN. Lowest offer will be selected automatically after GM approval.{requestEstimate.lines[index]?.amount != null ? ` Estimated line total: ${money(requestEstimate.lines[index].amount!)} (${item.quantity} × ${requestEstimate.days} day${requestEstimate.days === 1 ? '' : 's'}${item.rateUnit === 'HOURLY' ? ` × ${item.hours}h` : ''} × ${requestEstimate.lines[index].lowestRate!.toFixed(2)} AZN).` : ''}</div>}
                   </div>;
                 })}
               </div>
             </div>
+
+            {requestEstimate.total != null && (
+              <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                <div className="flex items-center justify-between gap-4">
+                  <span>Estimated request total using current lowest approved rates</span>
+                  <strong className="text-base">{money(requestEstimate.total)}</strong>
+                </div>
+                <p className="mt-1 text-xs text-blue-700">Inclusive period: {requestEstimate.days} calendar day{requestEstimate.days === 1 ? '' : 's'}. The amount is recalculated with the selected approved rate after General Manager approval.</p>
+              </div>
+            )}
 
             <Field label="Comment" className="mt-3">
               <textarea
