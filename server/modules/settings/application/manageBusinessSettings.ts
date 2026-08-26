@@ -13,6 +13,7 @@ import {
 import { toSettingsDto } from './settingsReadModel';
 
 type SystemDatabase = typeof DatabaseModule.systemPrisma;
+type TenantDatabase = typeof DatabaseModule.prisma;
 
 export type BusinessSettingsErrorCode =
   | 'FORBIDDEN'
@@ -136,7 +137,7 @@ export async function checkTenantSlugAvailability(
 }
 
 export async function updateBusinessSettings(
-  database: SystemDatabase,
+  database: TenantDatabase,
   tenant: TenantContext,
   actor: AuthUser,
   inputValue: unknown,

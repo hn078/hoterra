@@ -10,15 +10,28 @@ const {
 
 function databaseWith(tenant) {
   let queries = 0;
+  let tenantContext = null;
   return {
     database: {
       tenant: {
         findFirst: async (args) => {
           queries += 1;
           assert.deepEqual(args.where, { slug: 'hgi', isActive: true });
-          return tenant;
+          if (!tenant) return null;
+          const { systemSettings: _settings, ...registryTenant } = tenant;
+          return registryTenant;
         },
       },
+      $transaction: async (callback) => callback({
+        $executeRaw: async () => { tenantContext = tenant.id; },
+        systemSettings: {
+          findUnique: async (args) => {
+            assert.equal(tenantContext, tenant.id);
+            assert.deepEqual(args.where, { tenantId: tenant.id });
+            return tenant.systemSettings;
+          },
+        },
+      }),
     },
     queries: () => queries,
   };

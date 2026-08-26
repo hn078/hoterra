@@ -94,7 +94,7 @@ router.put(
   requireCapability('settings.manage.business'),
   asyncHandler(async (req: Request, res: Response) => {
     try {
-      res.json(await updateBusinessSettings(systemPrisma, req.tenant!, req.user!, req.body));
+      res.json(await updateBusinessSettings(prisma, req.tenant!, req.user!, req.body));
     } catch (error) {
       if (!(error instanceof BusinessSettingsError)) throw error;
       return businessError(error, res);

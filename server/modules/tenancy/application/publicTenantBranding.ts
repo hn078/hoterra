@@ -9,22 +9,34 @@ const publicTenantSelect = {
   id: true,
   name: true,
   slug: true,
-  systemSettings: {
-    select: {
-      companyName: true,
-      loginLogoPath: true,
-      loginBackgroundPath: true,
-    },
-  },
+} as const;
+
+const publicSettingsSelect = {
+  companyName: true,
+  loginLogoPath: true,
+  loginBackgroundPath: true,
 } as const;
 
 async function findPublicTenant(database: TenantRegistryDatabase, slugValue: unknown) {
   const slug = normalizePublicTenantSlug(slugValue);
   if (!slug) return null;
-  return database.tenant.findFirst({
+  const tenant = await database.tenant.findFirst({
     where: { slug, isActive: true },
     select: publicTenantSelect,
   });
+  if (!tenant) return null;
+
+  // The registry lookup is intentionally system-scoped. SystemSettings is RLS
+  // protected, so switch only this transaction to the already resolved active
+  // tenant before reading the public branding fields.
+  const systemSettings = await database.$transaction(async (transaction) => {
+    await transaction.$executeRaw`SELECT set_config('hoterra.tenant_id', ${tenant.id}, true)`;
+    return transaction.systemSettings.findUnique({
+      where: { tenantId: tenant.id },
+      select: publicSettingsSelect,
+    });
+  });
+  return { ...tenant, systemSettings };
 }
 
 export async function readPublicTenantBranding(
